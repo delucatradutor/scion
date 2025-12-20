@@ -86,11 +86,13 @@ func (r *AppleContainerRuntime) Stop(ctx context.Context, id string) error {
 }
 
 type containerListOutput struct {
-	ID     string            `json:"id"`
-	Names  []string          `json:"names"`
-	Status string            `json:"status"`
-	Image  string            `json:"image"`
-	Labels map[string]string `json:"labels"`
+	ID            string `json:"id"`
+	Configuration struct {
+		Labels map[string]string `json:"labels"`
+		Names  []string          `json:"names"` // Names is often inside configuration too
+	} `json:"configuration"`
+	Status string `json:"status"`
+	Image  string `json:"image"`
 }
 
 func (r *AppleContainerRuntime) List(ctx context.Context, labelFilter map[string]string) ([]AgentInfo, error) {
@@ -110,15 +112,15 @@ func (r *AppleContainerRuntime) List(ctx context.Context, labelFilter map[string
 	var agents []AgentInfo
 	for _, c := range raw {
 		name := ""
-		if len(c.Names) > 0 {
-			name = c.Names[0]
+		if len(c.Configuration.Names) > 0 {
+			name = c.Configuration.Names[0]
 		}
 
 		// Filter by labels if requested
 		if len(labelFilter) > 0 {
 			match := true
 			for k, v := range labelFilter {
-				if lv, ok := c.Labels[k]; !ok || lv != v {
+				if lv, ok := c.Configuration.Labels[k]; !ok || lv != v {
 					match = false
 					break
 				}
