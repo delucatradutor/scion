@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -16,34 +18,61 @@ func NewDockerRuntime() *DockerRuntime {
 	return &DockerRuntime{Command: "docker"}
 }
 
-func (r *DockerRuntime) RunDetached(ctx context.Context, config RunConfig) (string, error) {
-	args := []string{"run", "-d", "-t", "--init", "--name", config.Name}
+func (r *DockerRuntime) Run(ctx context.Context, config RunConfig) (string, error) {
+	args := []string{"run"}
+	if config.Detached {
+		args = append(args, "-d")
+	} else {
+		args = append(args, "-it")
+	}
+	args = append(args, "-t", "--init", "--name", config.Name)
 
 	if config.HomeDir != "" {
-		args = append(args, "-v", fmt.Sprintf("%s:/home/gemini", config.HomeDir))
+		args = append(args, "-v", fmt.Sprintf("%s:/home/node", config.HomeDir))
 	}
 	if config.Workspace != "" {
 		args = append(args, "-v", fmt.Sprintf("%s:/workspace", config.Workspace))
+		args = append(args, "--workdir", "/workspace")
 	}
+
+	// Override entrypoint to ensure it's interactive and uses a shell
+	args = append(args, "--entrypoint", "gemini")
 
 	// Propagate Auth
 	if config.Auth.GeminiAPIKey != "" {
 		args = append(args, "-e", fmt.Sprintf("GEMINI_API_KEY=%s", config.Auth.GeminiAPIKey))
+		args = append(args, "-e", "GEMINI_DEFAULT_AUTH_TYPE=gemini-api-key")
 	}
 	if config.Auth.GoogleAPIKey != "" {
 		args = append(args, "-e", fmt.Sprintf("GOOGLE_API_KEY=%s", config.Auth.GoogleAPIKey))
+		args = append(args, "-e", "GEMINI_DEFAULT_AUTH_TYPE=gemini-api-key")
 	}
 	if config.Auth.VertexAPIKey != "" {
 		args = append(args, "-e", fmt.Sprintf("VERTEX_API_KEY=%s", config.Auth.VertexAPIKey))
+		args = append(args, "-e", "GEMINI_DEFAULT_AUTH_TYPE=vertex-ai")
+	}
+	if config.Auth.OAuthCreds != "" {
+		// Mount OAuth creds file
+		containerPath := "/home/node/.gemini/oauth_creds.json"
+		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", config.Auth.OAuthCreds, containerPath))
+		args = append(args, "-e", "GEMINI_DEFAULT_AUTH_TYPE=oauth-personal")
 	}
 	if config.Auth.GoogleCloudProject != "" {
 		args = append(args, "-e", fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", config.Auth.GoogleCloudProject))
 	}
 	if config.Auth.GoogleAppCredentials != "" {
 		// Mount ADC file
-		containerPath := "/home/gemini/.config/gcp/application_default_credentials.json"
+		containerPath := "/home/node/.config/gcp/application_default_credentials.json"
 		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", config.Auth.GoogleAppCredentials, containerPath))
 		args = append(args, "-e", fmt.Sprintf("GOOGLE_APPLICATION_CREDENTIALS=%s", containerPath))
+		args = append(args, "-e", "GEMINI_DEFAULT_AUTH_TYPE=compute-default-credentials")
+	}
+
+	// Mount gcloud config if it exists
+	home, _ := os.UserHomeDir()
+	gcloudConfigDir := filepath.Join(home, ".config", "gcloud")
+	if _, err := os.Stat(gcloudConfigDir); err == nil {
+		args = append(args, "-v", fmt.Sprintf("%s:/home/node/.config/gcloud:ro", gcloudConfigDir))
 	}
 
 	for _, e := range config.Env {
@@ -56,13 +85,24 @@ func (r *DockerRuntime) RunDetached(ctx context.Context, config RunConfig) (stri
 
 	args = append(args, config.Image)
 
-	cmd := exec.CommandContext(ctx, r.Command, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("docker run failed: %w (output: %s)", err, string(out))
+	if config.Detached {
+		cmd := exec.CommandContext(ctx, r.Command, args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("docker run failed: %w (output: %s)", err, string(out))
+		}
+		return strings.TrimSpace(string(out)), nil
 	}
 
-	return strings.TrimSpace(string(out)), nil
+	// Interactive mode
+	cmd := exec.Command(r.Command, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("docker run failed: %w", err)
+	}
+	return "", nil
 }
 
 func (r *DockerRuntime) Stop(ctx context.Context, id string) error {
@@ -147,4 +187,14 @@ func (r *DockerRuntime) GetLogs(ctx context.Context, id string) (string, error) 
 		return "", fmt.Errorf("docker logs failed: %w (output: %s)", err, string(out))
 	}
 	return string(out), nil
+}
+
+func (r *DockerRuntime) Attach(ctx context.Context, id string) error {
+	// Using exec.Command instead of exec.CommandContext for attach to allow interactive TTY
+	// though CommandContext should also work if we don't cancel it.
+	cmd := exec.Command(r.Command, "attach", id)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }

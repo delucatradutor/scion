@@ -32,3 +32,22 @@ func CopyDir(src string, dst string) error {
 		return os.WriteFile(target, data, info.Mode())
 	})
 }
+
+// CopyFile copies a single file from src to dst.
+func CopyFile(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(dst, data, info.Mode())
+}

@@ -21,11 +21,13 @@ type RunConfig struct {
 	Env       []string
 	Labels    map[string]string
 	Auth      config.AuthConfig
+	Detached  bool
 }
 
 type Runtime interface {
-	RunDetached(ctx context.Context, config RunConfig) (string, error)
+	Run(ctx context.Context, config RunConfig) (string, error)
 	Stop(ctx context.Context, id string) error
 	List(ctx context.Context, labelFilter map[string]string) ([]AgentInfo, error)
 	GetLogs(ctx context.Context, id string) (string, error)
+	Attach(ctx context.Context, id string) error
 }

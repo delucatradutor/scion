@@ -15,7 +15,7 @@ func NewMockRuntime() *MockRuntime {
 	}
 }
 
-func (m *MockRuntime) RunDetached(ctx context.Context, config RunConfig) (string, error) {
+func (m *MockRuntime) Run(ctx context.Context, config RunConfig) (string, error) {
 	id := fmt.Sprintf("id-%s", config.Name)
 	m.Agents[id] = AgentInfo{
 		ID:     id,
@@ -44,4 +44,9 @@ func (m *MockRuntime) List(ctx context.Context, labelFilter map[string]string) (
 
 func (m *MockRuntime) GetLogs(ctx context.Context, id string) (string, error) {
 	return "mock logs", nil
+}
+
+func (m *MockRuntime) Attach(ctx context.Context, id string) error {
+	fmt.Printf("Mock: Attaching to %s\n", id)
+	return nil
 }
