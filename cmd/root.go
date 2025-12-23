@@ -13,7 +13,8 @@ import (
 
 
 var (
-	grovePath string
+	grovePath  string
+	globalMode bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -23,6 +24,11 @@ var rootCmd = &cobra.Command{
 	Long: `Scion is a container-based orchestration tool for managing 
 concurrent LLM agents. It enables parallel execution of specialized 
 sub-agents with isolated identities, credentials, and workspaces.`,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if globalMode && grovePath == "" {
+			grovePath = "global"
+		}
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -36,6 +42,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&grovePath, "grove", "g", "", "Path to a .scion grove directory")
+	rootCmd.PersistentFlags().BoolVar(&globalMode, "global", false, "Use the global grove (equivalent to --grove global)")
 }
 
 

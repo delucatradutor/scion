@@ -101,7 +101,4 @@ func init() {
 	templatesCmd.AddCommand(templatesShowCmd)
 	templatesCmd.AddCommand(templatesCreateCmd)
 	templatesCmd.AddCommand(templatesDeleteCmd)
-
-	templatesCreateCmd.Flags().Bool("global", false, "Create a global template")
-	templatesDeleteCmd.Flags().Bool("global", false, "Delete a global template")
 }
