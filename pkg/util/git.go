@@ -3,6 +3,7 @@ package util
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -96,11 +97,16 @@ func RemoveWorktree(path string, deleteBranch bool) error {
 	var repoRoot string
 
 	if deleteBranch {
-		// Get repo root
-		cmd := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel")
+		// Get the common git dir (main repo's .git dir)
+		cmd := exec.Command("git", "-C", path, "rev-parse", "--git-common-dir")
 		output, err := cmd.Output()
 		if err == nil {
-			repoRoot = strings.TrimSpace(string(output))
+			commonDir := strings.TrimSpace(string(output))
+			if !filepath.IsAbs(commonDir) {
+				// If relative, it's relative to the worktree root
+				commonDir = filepath.Join(path, commonDir)
+			}
+			repoRoot = filepath.Dir(commonDir)
 		}
 
 		// Get branch name
@@ -111,14 +117,15 @@ func RemoveWorktree(path string, deleteBranch bool) error {
 		}
 	}
 
-	// Try to remove it by running git from within the worktree itself.
-	// We use "." as the path to remove the worktree we are "in" via -C.
-	cmd := exec.Command("git", "-C", path, "worktree", "remove", ".", "--force")
+	// Remove the worktree. 
+	// We run this from the system root or anywhere to ensure we're not "in" the dir
+	cmd := exec.Command("git", "worktree", "remove", path, "--force")
 	if err := cmd.Run(); err != nil {
 		return err
 	}
 
 	if deleteBranch && branchName != "" && repoRoot != "" {
+		// Now delete the branch from the main repo
 		cmd := exec.Command("git", "-C", repoRoot, "branch", "-D", branchName)
 		return cmd.Run()
 	}
