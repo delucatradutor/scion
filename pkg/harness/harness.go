@@ -10,6 +10,8 @@ func New(harnessName string) api.Harness {
 		return &ClaudeCode{}
 	case "gemini":
 		return &GeminiCLI{}
+	case "opencode":
+		return &OpenCode{}
 	default:
 		return &Generic{}
 	}

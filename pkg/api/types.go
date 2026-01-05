@@ -63,6 +63,7 @@ type AuthConfig struct {
 	GoogleCloudProject   string
 	OAuthCreds           string
 	AnthropicAPIKey      string
+	OpenCodeAuthFile     string
 	SelectedType         string
 }
 
