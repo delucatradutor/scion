@@ -70,6 +70,11 @@ This creates a `.scion` directory in your project root containing:
 - `settings.json`: Grove-specific settings.
 - `templates/`: Default agent templates (gemini, claude, etc.).
 
+**Note:** If you are in a git repository, it is recommended to add `.scion/agents` to your `.gitignore` to avoid issues with nested git worktrees:
+```bash
+echo ".scion/agents" >> .gitignore
+```
+
 ### 2. Select Runtime
 Scion automatically selects the appropriate runtime based on your operating system:
 - **macOS**: Defaults to `container` (Apple Virtualization Framework).

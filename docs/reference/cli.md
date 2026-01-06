@@ -69,6 +69,7 @@ Deletes an agent, removing its container, home directory, and worktree.
 Manages the Scion workspace (Grove).
 
 - `scion grove init`: Initialize a new grove in the current directory.
+    - **Note:** If you are in a git repository, add `.scion/agents` to your `.gitignore` to avoid issues with nested git worktrees: `echo ".scion/agents" >> .gitignore`
 
 ## `scion templates`
 

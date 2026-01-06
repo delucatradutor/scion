@@ -41,6 +41,11 @@ cd my-project
 scion init
 ```
 
+Note: If you are in a git repository, it is recommended to add `.scion/agents` to your `.gitignore` to avoid issues with nested git worktrees:
+```bash
+echo ".scion/agents" >> .gitignore
+```
+
 Note: Scion automatically detects your operating system and configures the default runtime (Docker for Linux/Windows, Container for macOS). You can change this in `.scion/settings.json`.
 
 ### 2. Start Agents
