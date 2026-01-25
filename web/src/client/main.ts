@@ -4,6 +4,10 @@
  * Handles hydration of SSR content and client-side routing
  */
 
+// IMPORTANT: Import hydration support BEFORE any Lit components
+// This enables proper hydration of SSR-rendered declarative shadow DOM
+import '@lit-labs/ssr-client/lit-element-hydrate-support.js';
+
 // @vaadin/router reserved for future use in client-side routing
 // import { Router } from '@vaadin/router';
 

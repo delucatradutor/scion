@@ -67,6 +67,12 @@ export class ScionApp extends LitElement {
       }
     }
 
+    /* Hide mobile drawer until Shoelace is loaded */
+    /* This prevents SSR from rendering a visible duplicate nav */
+    sl-drawer:not(:defined) {
+      display: none;
+    }
+
     /* Mobile drawer */
     .mobile-drawer {
       --size: 280px;
