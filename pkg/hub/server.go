@@ -45,6 +45,8 @@ type ServerConfig struct {
 	EnableAPIKeys bool
 	// Debug enables verbose debug logging.
 	Debug bool
+	// OAuthConfig holds OAuth provider credentials for CLI authentication.
+	OAuthConfig OAuthConfig
 }
 
 // DefaultServerConfig returns the default server configuration.
@@ -170,6 +172,7 @@ type Server struct {
 	agentTokenService *AgentTokenService  // Agent JWT token service
 	userTokenService  *UserTokenService   // User JWT token service
 	apiKeyService     *APIKeyService      // API key service
+	oauthService      *OAuthService       // OAuth service for CLI authentication
 	authConfig        AuthConfig          // Unified auth configuration
 }
 
@@ -201,6 +204,12 @@ func New(cfg ServerConfig, s store.Store) *Server {
 	// Initialize API key service if enabled
 	if cfg.EnableAPIKeys {
 		srv.apiKeyService = NewAPIKeyService(s, s)
+	}
+
+	// Initialize OAuth service if configured
+	if cfg.OAuthConfig.IsConfigured() {
+		srv.oauthService = NewOAuthService(cfg.OAuthConfig)
+		log.Printf("[Hub] OAuth service initialized")
 	}
 
 	// Build unified auth configuration
@@ -355,6 +364,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/auth/me", s.handleAuthMe)
 	s.mux.HandleFunc("/api/v1/auth/api-keys", s.handleAPIKeys)
 	s.mux.HandleFunc("/api/v1/auth/api-keys/", s.handleAPIKeyByID)
+
+	// CLI OAuth endpoints (unauthenticated - used for login)
+	s.mux.HandleFunc("/api/v1/auth/cli/authorize", s.handleCLIAuthAuthorize)
+	s.mux.HandleFunc("/api/v1/auth/cli/token", s.handleCLIAuthToken)
 
 	// API v1 routes
 	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)

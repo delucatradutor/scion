@@ -89,6 +89,33 @@ type AuthLogoutResponse struct {
 	Success bool `json:"success"`
 }
 
+// CLIAuthAuthorizeRequest is the request body for /api/v1/auth/cli/authorize.
+type CLIAuthAuthorizeRequest struct {
+	CallbackURL string `json:"callbackUrl"`
+	State       string `json:"state"`
+	Provider    string `json:"provider,omitempty"` // "google" (default) or "github"
+}
+
+// CLIAuthAuthorizeResponse is the response for /api/v1/auth/cli/authorize.
+type CLIAuthAuthorizeResponse struct {
+	URL string `json:"url"`
+}
+
+// CLIAuthTokenRequest is the request body for /api/v1/auth/cli/token.
+type CLIAuthTokenRequest struct {
+	Code        string `json:"code"`
+	CallbackURL string `json:"callbackUrl"`
+	Provider    string `json:"provider,omitempty"` // "google" (default) or "github"
+}
+
+// CLIAuthTokenResponse is the response for /api/v1/auth/cli/token.
+type CLIAuthTokenResponse struct {
+	AccessToken  string        `json:"accessToken"`
+	RefreshToken string        `json:"refreshToken,omitempty"`
+	ExpiresIn    int64         `json:"expiresIn"` // seconds
+	User         *UserResponse `json:"user,omitempty"`
+}
+
 // APIKeyCreateRequest is the request body for creating an API key.
 type APIKeyCreateRequest struct {
 	Name      string     `json:"name"`
@@ -477,6 +504,163 @@ func (s *Server) handleDeleteAPIKey(w http.ResponseWriter, r *http.Request, id s
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleCLIAuthAuthorize handles POST /api/v1/auth/cli/authorize.
+// This endpoint generates an OAuth authorization URL for CLI login.
+func (s *Server) handleCLIAuthAuthorize(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		MethodNotAllowed(w)
+		return
+	}
+
+	var req CLIAuthAuthorizeRequest
+	if err := readJSON(r, &req); err != nil {
+		BadRequest(w, "invalid request body")
+		return
+	}
+
+	// Validate required fields
+	if req.CallbackURL == "" || req.State == "" {
+		ValidationError(w, "missing required fields", map[string]interface{}{
+			"required": []string{"callbackUrl", "state"},
+		})
+		return
+	}
+
+	// Default to Google if no provider specified
+	provider := req.Provider
+	if provider == "" {
+		provider = "google"
+	}
+
+	// Check if OAuth service is configured
+	if s.oauthService == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented",
+			"OAuth is not configured on this server", nil)
+		return
+	}
+
+	// Check if the requested provider is configured
+	if !s.oauthService.config.IsProviderConfigured(provider) {
+		writeError(w, http.StatusBadRequest, ErrCodeValidationError,
+			"OAuth provider not configured: "+provider, nil)
+		return
+	}
+
+	// Generate authorization URL
+	authURL, err := s.oauthService.GetAuthorizationURL(provider, req.CallbackURL, req.State)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "oauth_error",
+			"failed to generate authorization URL: "+err.Error(), nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, CLIAuthAuthorizeResponse{
+		URL: authURL,
+	})
+}
+
+// handleCLIAuthToken handles POST /api/v1/auth/cli/token.
+// This endpoint exchanges an OAuth authorization code for Hub tokens.
+func (s *Server) handleCLIAuthToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		MethodNotAllowed(w)
+		return
+	}
+
+	var req CLIAuthTokenRequest
+	if err := readJSON(r, &req); err != nil {
+		BadRequest(w, "invalid request body")
+		return
+	}
+
+	// Validate required fields
+	if req.Code == "" || req.CallbackURL == "" {
+		ValidationError(w, "missing required fields", map[string]interface{}{
+			"required": []string{"code", "callbackUrl"},
+		})
+		return
+	}
+
+	// Default to Google if no provider specified
+	provider := req.Provider
+	if provider == "" {
+		provider = "google"
+	}
+
+	// Check if OAuth service is configured
+	if s.oauthService == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented",
+			"OAuth is not configured on this server", nil)
+		return
+	}
+
+	// Exchange code for user info
+	ctx := r.Context()
+	userInfo, err := s.oauthService.ExchangeCode(ctx, provider, req.Code, req.CallbackURL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "oauth_error",
+			"failed to exchange authorization code: "+err.Error(), nil)
+		return
+	}
+
+	// Find or create user
+	user, err := s.store.GetUserByEmail(ctx, userInfo.Email)
+	if err != nil {
+		// Create new user
+		user = &store.User{
+			ID:          generateID(),
+			Email:       userInfo.Email,
+			DisplayName: userInfo.DisplayName,
+			AvatarURL:   userInfo.AvatarURL,
+			Role:        "member",
+			Status:      "active",
+			Created:     time.Now(),
+			LastLogin:   time.Now(),
+		}
+		if err := s.store.CreateUser(ctx, user); err != nil {
+			InternalError(w)
+			return
+		}
+	} else {
+		// Update last login and profile info
+		user.LastLogin = time.Now()
+		if userInfo.AvatarURL != "" && user.AvatarURL == "" {
+			user.AvatarURL = userInfo.AvatarURL
+		}
+		if userInfo.DisplayName != "" && user.DisplayName == "" {
+			user.DisplayName = userInfo.DisplayName
+		}
+		_ = s.store.UpdateUser(ctx, user)
+	}
+
+	// Generate Hub tokens (CLI type for longer duration)
+	if s.userTokenService == nil {
+		InternalError(w)
+		return
+	}
+
+	accessToken, refreshToken, expiresIn, err := s.userTokenService.GenerateTokenPair(
+		user.ID, user.Email, user.DisplayName, user.Role, ClientTypeCLI,
+	)
+	if err != nil {
+		InternalError(w)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, CLIAuthTokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    expiresIn,
+		User: &UserResponse{
+			ID:          user.ID,
+			Email:       user.Email,
+			DisplayName: user.DisplayName,
+			Role:        user.Role,
+			AvatarURL:   user.AvatarURL,
+		},
+	})
 }
 
 // generateID generates a new UUID.

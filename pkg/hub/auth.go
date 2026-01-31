@@ -56,8 +56,8 @@ func UnifiedAuthMiddleware(cfg AuthConfig) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
-			// Skip auth for health endpoints
-			if isHealthEndpoint(r.URL.Path) {
+			// Skip auth for unauthenticated endpoints (health checks, CLI OAuth)
+			if isUnauthenticatedEndpoint(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -229,6 +229,19 @@ func extractBearerToken(r *http.Request) string {
 // isHealthEndpoint returns true if the path is a health check endpoint.
 func isHealthEndpoint(path string) bool {
 	return path == "/healthz" || path == "/readyz"
+}
+
+// isUnauthenticatedEndpoint returns true if the path does not require authentication.
+// This includes health endpoints and CLI OAuth endpoints (used for login).
+func isUnauthenticatedEndpoint(path string) bool {
+	if isHealthEndpoint(path) {
+		return true
+	}
+	// CLI OAuth endpoints - these are pre-login endpoints
+	if path == "/api/v1/auth/cli/authorize" || path == "/api/v1/auth/cli/token" {
+		return true
+	}
+	return false
 }
 
 // parseTrustedProxies parses a list of IP addresses and CIDR ranges.

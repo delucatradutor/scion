@@ -82,6 +82,22 @@ type DevAuthConfig struct {
 	TokenFile string `json:"devTokenFile" yaml:"devTokenFile" koanf:"devTokenFile"`
 }
 
+// OAuthProviderConfig holds OAuth credentials for a single provider.
+type OAuthProviderConfig struct {
+	// ClientID is the OAuth application client ID.
+	ClientID string `json:"clientId" yaml:"clientId" koanf:"clientId"`
+	// ClientSecret is the OAuth application client secret.
+	ClientSecret string `json:"clientSecret" yaml:"clientSecret" koanf:"clientSecret"`
+}
+
+// OAuthConfig holds OAuth provider configurations.
+type OAuthConfig struct {
+	// Google OAuth settings.
+	Google OAuthProviderConfig `json:"google" yaml:"google" koanf:"google"`
+	// GitHub OAuth settings.
+	GitHub OAuthProviderConfig `json:"github" yaml:"github" koanf:"github"`
+}
+
 // GlobalConfig holds the complete server configuration.
 // This is distinct from hub.ServerConfig which only holds HTTP server settings.
 type GlobalConfig struct {
@@ -96,6 +112,9 @@ type GlobalConfig struct {
 
 	// Authentication settings
 	Auth DevAuthConfig `json:"auth" yaml:"auth" koanf:"auth"`
+
+	// OAuth provider settings
+	OAuth OAuthConfig `json:"oauth" yaml:"oauth" koanf:"oauth"`
 
 	// Logging settings
 	LogLevel  string `json:"logLevel" yaml:"logLevel" koanf:"logLevel"`
@@ -182,8 +201,13 @@ func LoadGlobalConfig(configPath string) (*GlobalConfig, error) {
 		"auth.devMode":      defaults.Auth.Enabled,
 		"auth.devToken":     defaults.Auth.Token,
 		"auth.devTokenFile": defaults.Auth.TokenFile,
-		"logLevel":          defaults.LogLevel,
-		"logFormat":         defaults.LogFormat,
+		// OAuth defaults (empty by default, loaded from env/config)
+		"oauth.google.clientId":     "",
+		"oauth.google.clientSecret": "",
+		"oauth.github.clientId":     "",
+		"oauth.github.clientSecret": "",
+		"logLevel":                  defaults.LogLevel,
+		"logFormat":                 defaults.LogFormat,
 	}, "."), nil); err != nil {
 		return nil, err
 	}

@@ -214,6 +214,33 @@ func TestUnifiedAuthMiddleware_HealthEndpointsSkipped(t *testing.T) {
 	}
 }
 
+func TestUnifiedAuthMiddleware_CLIAuthEndpointsSkipped(t *testing.T) {
+	// Configure middleware with no auth methods enabled
+	cfg := AuthConfig{
+		Mode: "production",
+	}
+
+	middleware := UnifiedAuthMiddleware(cfg)
+
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// CLI OAuth endpoints should pass without auth (pre-login endpoints)
+	cliAuthPaths := []string{"/api/v1/auth/cli/authorize", "/api/v1/auth/cli/token"}
+	for _, path := range cliAuthPaths {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, path, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Errorf("expected status 200 for %s, got %d", path, rec.Code)
+			}
+		})
+	}
+}
+
 func TestDetectTokenType(t *testing.T) {
 	tests := []struct {
 		token    string

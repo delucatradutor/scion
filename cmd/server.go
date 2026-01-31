@@ -294,6 +294,16 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 			CORSMaxAge:         cfg.Hub.CORSMaxAge,
 			DevAuthToken:       devAuthToken,
 			Debug:              enableDebug,
+			OAuthConfig: hub.OAuthConfig{
+				Google: hub.OAuthProviderConfig{
+					ClientID:     cfg.OAuth.Google.ClientID,
+					ClientSecret: cfg.OAuth.Google.ClientSecret,
+				},
+				GitHub: hub.OAuthProviderConfig{
+					ClientID:     cfg.OAuth.GitHub.ClientID,
+					ClientSecret: cfg.OAuth.GitHub.ClientSecret,
+				},
+			},
 		}
 
 		// Create Hub server
