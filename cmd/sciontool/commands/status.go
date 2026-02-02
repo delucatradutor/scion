@@ -15,6 +15,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks"
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks/handlers"
 	"github.com/ptone/scion-agent/pkg/sciontool/hub"
+	"github.com/ptone/scion-agent/pkg/sciontool/log"
 )
 
 // statusCmd represents the status command
@@ -71,13 +72,13 @@ func runStatusAskUser(message string) {
 
 	// Update session status to waiting for input
 	if err := statusHandler.UpdateStatus(hooks.StateWaitingForInput, true); err != nil {
-		logError("Failed to update status: %v", err)
+		log.Error("Failed to update status: %v", err)
 	}
 
 	// Log the event
 	logMessage := fmt.Sprintf("Agent requested input: %s", message)
 	if err := loggingHandler.LogEvent(hooks.StateWaitingForInput, logMessage); err != nil {
-		logError("Failed to log event: %v", err)
+		log.Error("Failed to log event: %v", err)
 	}
 
 	// Report to Hub if in hosted mode
@@ -85,7 +86,7 @@ func runStatusAskUser(message string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := hubClient.ReportIdle(ctx, message); err != nil {
-			logError("Failed to report to Hub: %v", err)
+			log.Error("Failed to report to Hub: %v", err)
 		}
 	}
 
@@ -99,13 +100,13 @@ func runStatusTaskCompleted(message string) {
 
 	// Update session status to completed
 	if err := statusHandler.UpdateStatus(hooks.StateCompleted, true); err != nil {
-		logError("Failed to update status: %v", err)
+		log.Error("Failed to update status: %v", err)
 	}
 
 	// Log the event
 	logMessage := fmt.Sprintf("Agent completed task: %s", message)
 	if err := loggingHandler.LogEvent(hooks.StateCompleted, logMessage); err != nil {
-		logError("Failed to log event: %v", err)
+		log.Error("Failed to log event: %v", err)
 	}
 
 	// Report to Hub if in hosted mode
@@ -113,7 +114,7 @@ func runStatusTaskCompleted(message string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := hubClient.ReportTaskCompleted(ctx, message); err != nil {
-			logError("Failed to report to Hub: %v", err)
+			log.Error("Failed to report to Hub: %v", err)
 		}
 	}
 

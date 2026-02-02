@@ -10,11 +10,11 @@ import (
 	"os"
 	"time"
 
-	reaper "github.com/ramr/go-reaper"
 	"github.com/spf13/cobra"
 
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks"
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks/handlers"
+	"github.com/ptone/scion-agent/pkg/sciontool/log"
 	"github.com/ptone/scion-agent/pkg/sciontool/supervisor"
 )
 
@@ -65,9 +65,7 @@ func init() {
 func runInit(args []string) int {
 	// Start the reaper goroutine for zombie process cleanup.
 	// This is critical when running as PID 1 in a container.
-	// The reaper configuration uses default settings which are sufficient
-	// for our use case: it reaps children and doesn't call os.Exit.
-	go reaper.Reap()
+	supervisor.StartReaper()
 
 	// Extract the child command (everything after --)
 	childArgs := extractChildCommand(args)
@@ -78,9 +76,9 @@ func runInit(args []string) int {
 	}
 
 	// Log startup
-	logInfo("sciontool init starting as PID %d", os.Getpid())
-	logInfo("Child command: %v", childArgs)
-	logInfo("Grace period: %s", gracePeriod)
+	log.Info("sciontool init starting as PID %d", os.Getpid())
+	log.Info("Child command: %v", childArgs)
+	log.Info("Grace period: %s", gracePeriod)
 
 	// Initialize lifecycle hooks manager
 	lifecycleManager := hooks.NewLifecycleManager()
@@ -96,9 +94,9 @@ func runInit(args []string) int {
 	}
 
 	// Run pre-start hooks (after setup, before child process)
-	logInfo("Running pre-start hooks...")
+	log.Info("Running pre-start hooks...")
 	if err := lifecycleManager.RunPreStart(); err != nil {
-		logError("Pre-start hooks failed: %v", err)
+		log.Error("Pre-start hooks failed: %v", err)
 		// Continue anyway - hooks failing shouldn't prevent startup
 	}
 
@@ -115,7 +113,7 @@ func runInit(args []string) int {
 	// Set up signal handling with pre-stop hook for graceful shutdown
 	sigHandler := supervisor.NewSignalHandler(sup, cancel).
 		WithPreStopHook(func() error {
-			logInfo("Running pre-stop hooks...")
+			log.Info("Running pre-stop hooks...")
 			return lifecycleManager.RunPreStop()
 		})
 	sigHandler.Start()
@@ -142,16 +140,16 @@ func runInit(args []string) int {
 	case result := <-exitChan:
 		// Child exited immediately - likely a startup error
 		if result.err != nil {
-			logError("Supervisor error: %v", result.err)
+			log.Error("Supervisor error: %v", result.err)
 			return 1
 		}
-		logInfo("Child exited with code %d", result.code)
+		log.Info("Child exited with code %d", result.code)
 		return result.code
 	case <-time.After(100 * time.Millisecond):
 		// Process appears to be running, execute post-start hooks
-		logInfo("Running post-start hooks...")
+		log.Info("Running post-start hooks...")
 		if err := lifecycleManager.RunPostStart(); err != nil {
-			logError("Post-start hooks failed: %v", err)
+			log.Error("Post-start hooks failed: %v", err)
 			// Continue anyway
 		}
 	}
@@ -160,17 +158,17 @@ func runInit(args []string) int {
 	result := <-exitChan
 
 	// Run session-end hooks (graceful shutdown)
-	logInfo("Running session-end hooks...")
+	log.Info("Running session-end hooks...")
 	if err := lifecycleManager.RunSessionEnd(); err != nil {
-		logError("Session-end hooks failed: %v", err)
+		log.Error("Session-end hooks failed: %v", err)
 	}
 
 	if result.err != nil {
-		logError("Supervisor error: %v", result.err)
+		log.Error("Supervisor error: %v", result.err)
 		return 1
 	}
 
-	logInfo("Child exited with code %d", result.code)
+	log.Info("Child exited with code %d", result.code)
 	return result.code
 }
 
@@ -178,18 +176,4 @@ func runInit(args []string) int {
 // Cobra handles -- separator, so args contains everything after --.
 func extractChildCommand(args []string) []string {
 	return args
-}
-
-// logInfo logs an informational message to stderr (stdout is reserved for child).
-func logInfo(format string, args ...interface{}) {
-	level := os.Getenv("SCION_LOG_LEVEL")
-	if level == "error" || level == "warn" {
-		return
-	}
-	fmt.Fprintf(os.Stderr, "[sciontool] "+format+"\n", args...)
-}
-
-// logError logs an error message to stderr.
-func logError(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "[sciontool] ERROR: "+format+"\n", args...)
 }

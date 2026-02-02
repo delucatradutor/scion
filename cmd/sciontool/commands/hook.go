@@ -15,6 +15,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks"
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks/dialects"
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks/handlers"
+	"github.com/ptone/scion-agent/pkg/sciontool/log"
 )
 
 var (
@@ -74,7 +75,7 @@ Examples:
 
 		// Default: process JSON from stdin
 		if err := runHookFromStdin(); err != nil {
-			logError("Hook processing failed: %v", err)
+			log.Error("Hook processing failed: %v", err)
 			os.Exit(1)
 		}
 	},
@@ -149,7 +150,7 @@ func runHookWithEvent(eventName string) {
 	}
 	jsonData, _ := json.Marshal(data)
 	if err := processHookData(jsonData); err != nil {
-		logError("Hook processing failed: %v", err)
+		log.Error("Hook processing failed: %v", err)
 		os.Exit(1)
 	}
 }
@@ -187,13 +188,13 @@ func runAskUser(message string) {
 
 	// Update session status to waiting for input
 	if err := statusHandler.UpdateStatus(hooks.StateWaitingForInput, true); err != nil {
-		logError("Failed to update status: %v", err)
+		log.Error("Failed to update status: %v", err)
 	}
 
 	// Log the event
 	logMessage := fmt.Sprintf("Agent requested input: %s", message)
 	if err := loggingHandler.LogEvent(hooks.StateWaitingForInput, logMessage); err != nil {
-		logError("Failed to log event: %v", err)
+		log.Error("Failed to log event: %v", err)
 	}
 
 	fmt.Printf("Agent asked: %s\n", message)
@@ -206,13 +207,13 @@ func runTaskCompleted(message string) {
 
 	// Update session status to completed
 	if err := statusHandler.UpdateStatus(hooks.StateCompleted, true); err != nil {
-		logError("Failed to update status: %v", err)
+		log.Error("Failed to update status: %v", err)
 	}
 
 	// Log the event
 	logMessage := fmt.Sprintf("Agent completed task: %s", message)
 	if err := loggingHandler.LogEvent(hooks.StateCompleted, logMessage); err != nil {
-		logError("Failed to log event: %v", err)
+		log.Error("Failed to log event: %v", err)
 	}
 
 	fmt.Printf("Agent completed: %s\n", message)

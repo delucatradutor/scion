@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ptone/scion-agent/pkg/sciontool/log"
 )
 
 func TestStatusCommand(t *testing.T) {
@@ -66,6 +68,7 @@ func TestStatusCommand(t *testing.T) {
 			logFile := filepath.Join(tempDir, "agent.log")
 			os.Remove(statusFile)
 			os.Remove(logFile)
+			log.SetLogPath(logFile)
 
 			rootCmd.SetArgs(tt.args)
 			err := rootCmd.Execute()

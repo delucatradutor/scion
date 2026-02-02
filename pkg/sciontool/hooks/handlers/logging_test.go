@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks"
+	"github.com/ptone/scion-agent/pkg/sciontool/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,10 +19,9 @@ import (
 func TestLoggingHandler_LogEvent(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "agent.log")
+	log.SetLogPath(logPath)
 
-	h := &LoggingHandler{
-		LogPath: logPath,
-	}
+	h := &LoggingHandler{}
 
 	err := h.LogEvent(hooks.StateThinking, "Test message")
 	require.NoError(t, err)
@@ -30,6 +30,7 @@ func TestLoggingHandler_LogEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	content := string(data)
+	assert.Contains(t, content, "[sciontool]")
 	assert.Contains(t, content, "[THINKING]")
 	assert.Contains(t, content, "Test message")
 }
@@ -37,10 +38,9 @@ func TestLoggingHandler_LogEvent(t *testing.T) {
 func TestLoggingHandler_Handle(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "agent.log")
+	log.SetLogPath(logPath)
 
-	h := &LoggingHandler{
-		LogPath: logPath,
-	}
+	h := &LoggingHandler{}
 
 	tests := []struct {
 		name        string
@@ -103,6 +103,7 @@ func TestLoggingHandler_Handle(t *testing.T) {
 			content := string(data)
 			assert.True(t, strings.Contains(content, tt.wantContain),
 				"log should contain %q, got: %s", tt.wantContain, content)
+			assert.Contains(t, content, "[sciontool]")
 		})
 	}
 }
@@ -110,10 +111,9 @@ func TestLoggingHandler_Handle(t *testing.T) {
 func TestLoggingHandler_LongPromptTruncation(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "agent.log")
+	log.SetLogPath(logPath)
 
-	h := &LoggingHandler{
-		LogPath: logPath,
-	}
+	h := &LoggingHandler{}
 
 	// Create a very long prompt
 	longPrompt := strings.Repeat("a", 200)

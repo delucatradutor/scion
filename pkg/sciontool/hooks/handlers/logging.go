@@ -6,32 +6,18 @@ package handlers
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"sync"
-	"time"
-
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks"
+	"github.com/ptone/scion-agent/pkg/sciontool/log"
 )
 
 // LoggingHandler logs hook events to a file.
 // It replicates the functionality of scion_tool.py's log_event function.
 type LoggingHandler struct {
-	// LogPath is the path to the agent.log file.
-	LogPath string
-
-	mu sync.Mutex
 }
 
 // NewLoggingHandler creates a new logging handler.
 func NewLoggingHandler() *LoggingHandler {
-	home := os.Getenv("HOME")
-	if home == "" {
-		home = "/home/scion"
-	}
-	return &LoggingHandler{
-		LogPath: filepath.Join(home, "agent.log"),
-	}
+	return &LoggingHandler{}
 }
 
 // Handle logs an event to the log file.
@@ -44,22 +30,7 @@ func (h *LoggingHandler) Handle(event *hooks.Event) error {
 
 // LogEvent writes a log entry to the agent log file.
 func (h *LoggingHandler) LogEvent(state hooks.AgentState, message string) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	entry := fmt.Sprintf("%s [%s] %s\n", timestamp, state, message)
-
-	f, err := os.OpenFile(h.LogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("opening log file: %w", err)
-	}
-	defer f.Close()
-
-	if _, err := f.WriteString(entry); err != nil {
-		return fmt.Errorf("writing log entry: %w", err)
-	}
-
+	log.TaggedInfo(string(state), "%s", message)
 	return nil
 }
 

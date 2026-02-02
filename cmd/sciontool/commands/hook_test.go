@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ptone/scion-agent/pkg/sciontool/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,6 +21,7 @@ func TestProcessHookData_Claude(t *testing.T) {
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
+	log.SetLogPath(filepath.Join(tmpDir, "agent.log"))
 
 	hookDialect = "claude"
 
@@ -54,6 +56,7 @@ func TestProcessHookData_Gemini(t *testing.T) {
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
+	log.SetLogPath(filepath.Join(tmpDir, "agent.log"))
 
 	hookDialect = "gemini"
 
@@ -82,6 +85,7 @@ func TestProcessHookData_SessionEvents(t *testing.T) {
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
+	log.SetLogPath(filepath.Join(tmpDir, "agent.log"))
 
 	hookDialect = "claude"
 

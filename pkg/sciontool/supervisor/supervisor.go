@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/ptone/scion-agent/pkg/sciontool/log"
 )
 
 // ErrNoCommand is returned when no command is specified for the supervisor to run.
@@ -79,6 +81,7 @@ func (s *Supervisor) Run(ctx context.Context, args []string) (int, error) {
 	if err := s.cmd.Start(); err != nil {
 		return 1, fmt.Errorf("failed to start command: %w", err)
 	}
+	log.Debug("Started child process %d: %v", s.cmd.Process.Pid, args)
 
 	s.mu.Lock()
 	s.started = true
@@ -90,12 +93,12 @@ func (s *Supervisor) Run(ctx context.Context, args []string) (int, error) {
 	// Wait for either context cancellation or child exit
 	select {
 	case <-ctx.Done():
-		// Context cancelled, initiate graceful shutdown
+		log.Info("Context cancelled, initiating graceful shutdown")
 		return s.shutdown()
 	case <-s.done:
-		// Child exited on its own
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		log.Debug("Child process %d exited naturally", s.cmd.Process.Pid)
 		return s.exitCode, s.exitError
 	}
 }
@@ -147,6 +150,7 @@ func (s *Supervisor) shutdown() (int, error) {
 	}
 	s.mu.Unlock()
 
+	log.Info("Sending SIGTERM to child process group")
 	// Send SIGTERM first
 	if err := s.Signal(syscall.SIGTERM); err != nil {
 		// If we can't signal, try to get exit status anyway
@@ -164,10 +168,12 @@ func (s *Supervisor) shutdown() (int, error) {
 	// Wait for graceful exit or timeout
 	select {
 	case <-s.done:
+		log.Info("Child process exited gracefully after SIGTERM")
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		return s.exitCode, s.exitError
 	case <-time.After(s.config.GracePeriod):
+		log.Info("Grace period %s expired, sending SIGKILL to child process group", s.config.GracePeriod)
 		// Grace period expired, force kill
 		if err := s.Signal(syscall.SIGKILL); err != nil {
 			s.mu.Lock()
@@ -181,6 +187,7 @@ func (s *Supervisor) shutdown() (int, error) {
 		}
 		// Wait for process to actually exit after SIGKILL
 		<-s.done
+		log.Info("Child process terminated with SIGKILL")
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		return s.exitCode, s.exitError
