@@ -308,6 +308,22 @@ func (d *HTTPAgentDispatcher) DispatchAgentCreate(ctx context.Context, agent *st
 		return err
 	}
 
+	// Look up the local path for this grove on the target runtime host
+	var grovePath string
+	if agent.GroveID != "" && agent.RuntimeHostID != "" {
+		contrib, err := d.store.GetGroveContributor(ctx, agent.GroveID, agent.RuntimeHostID)
+		if err != nil {
+			if d.debug {
+				log.Printf("[Hub:Dispatcher] Warning: failed to get grove contributor for path lookup: %v", err)
+			}
+		} else if contrib.LocalPath != "" {
+			grovePath = contrib.LocalPath
+			if d.debug {
+				log.Printf("[Hub:Dispatcher] Found grove path for host %s: %s", agent.RuntimeHostID, grovePath)
+			}
+		}
+	}
+
 	// Build the remote create request
 	req := &RemoteCreateAgentRequest{
 		AgentID:     agent.ID,
@@ -315,6 +331,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentCreate(ctx context.Context, agent *st
 		GroveID:     agent.GroveID,
 		UserID:      agent.OwnerID,
 		HubEndpoint: d.hubEndpoint,
+		GrovePath:   grovePath,
 	}
 
 	if d.debug {

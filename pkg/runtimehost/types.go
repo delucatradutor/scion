@@ -136,6 +136,10 @@ type CreateAgentRequest struct {
 	// The Runtime Host should merge these with config.Env, with config.Env
 	// taking precedence over ResolvedEnv.
 	ResolvedEnv map[string]string `json:"resolvedEnv,omitempty"`
+
+	// GrovePath is the local filesystem path to the grove on this runtime host.
+	// This is provided by the Hub from the grove contributor record.
+	GrovePath string `json:"grovePath,omitempty"`
 }
 
 // CreateAgentConfig contains configuration for agent creation.

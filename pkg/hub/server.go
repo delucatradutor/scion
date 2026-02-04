@@ -149,15 +149,18 @@ type RuntimeHostClient interface {
 
 // RemoteCreateAgentRequest is the request body for creating an agent on a remote runtime host.
 type RemoteCreateAgentRequest struct {
-	RequestID   string            `json:"requestId,omitempty"`
-	AgentID     string            `json:"agentId"`
-	Name        string            `json:"name"`
-	GroveID     string            `json:"groveId"`
-	UserID      string            `json:"userId,omitempty"`
+	RequestID   string             `json:"requestId,omitempty"`
+	AgentID     string             `json:"agentId"`
+	Name        string             `json:"name"`
+	GroveID     string             `json:"groveId"`
+	UserID      string             `json:"userId,omitempty"`
 	Config      *RemoteAgentConfig `json:"config,omitempty"`
-	ResolvedEnv map[string]string `json:"resolvedEnv,omitempty"`
-	HubEndpoint string            `json:"hubEndpoint,omitempty"`
-	AgentToken  string            `json:"agentToken,omitempty"`
+	ResolvedEnv map[string]string  `json:"resolvedEnv,omitempty"`
+	HubEndpoint string             `json:"hubEndpoint,omitempty"`
+	AgentToken  string             `json:"agentToken,omitempty"`
+	// GrovePath is the local filesystem path to the grove on the target runtime host.
+	// This is looked up from the grove contributor record for the target host.
+	GrovePath string `json:"grovePath,omitempty"`
 }
 
 // RemoteAgentConfig contains agent configuration for remote creation.

@@ -250,14 +250,20 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	opts := api.StartOptions{
-		Name:     req.Name,
-		Detached: boolPtr(true),
+		Name:      req.Name,
+		Detached:  boolPtr(true),
+		GrovePath: req.GrovePath,
 	}
 
 	if req.Config != nil {
 		opts.Template = req.Config.Template
 		opts.Image = req.Config.Image
 		opts.Task = req.Config.Task
+	}
+
+	// Debug log grove path
+	if s.config.Debug && req.GrovePath != "" {
+		log.Printf("[Host] Using grove path from Hub: %s", req.GrovePath)
 	}
 
 	// Hydrate template if Hub mode is enabled and template info is provided
