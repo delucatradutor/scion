@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAgentCreate_HostResolution(t *testing.T) {
+func TestAgentCreate_BrokerResolution(t *testing.T) {
 	srv, s := testServer(t)
 	ctx := context.Background()
 
@@ -38,7 +38,7 @@ func TestAgentCreate_HostResolution(t *testing.T) {
 	}
 	require.NoError(t, s.CreateGrove(ctx, grove))
 
-	// Register host as contributor
+	// Register broker as contributor
 	contrib := &store.GroveContributor{
 		GroveID:  grove.ID,
 		BrokerID:   broker.ID,
@@ -90,7 +90,7 @@ func TestAgentCreate_HostResolution(t *testing.T) {
 		assert.Equal(t, "broker_id_123", resp.Agent.RuntimeBrokerID)
 	})
 
-	t.Run("Invalid host", func(t *testing.T) {
+	t.Run("Invalid broker", func(t *testing.T) {
 		body := map[string]interface{}{
 			"name":          "Agent Invalid",
 			"groveId":       grove.ID,

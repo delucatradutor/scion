@@ -219,7 +219,7 @@ func TestAgentCreate(t *testing.T) {
 		t.Fatalf("failed to create grove: %v", err)
 	}
 
-	// Register the host as a contributor to the grove
+	// Register the broker as a contributor to the grove
 	contrib := &store.GroveContributor{
 		GroveID:  grove.ID,
 		BrokerID:   broker.ID,
@@ -300,7 +300,7 @@ func TestAgentCreate_SingleContributor(t *testing.T) {
 		t.Fatalf("failed to create grove: %v", err)
 	}
 
-	// Register the host as the only contributor to the grove
+	// Register the broker as the only contributor to the grove
 	contrib := &store.GroveContributor{
 		GroveID:  grove.ID,
 		BrokerID:   broker.ID,
@@ -378,7 +378,7 @@ func TestAgentCreate_MultipleContributors(t *testing.T) {
 		t.Fatalf("failed to create grove: %v", err)
 	}
 
-	// Register both hosts as contributors to the grove
+	// Register both brokers as contributors to the grove
 	contrib1 := &store.GroveContributor{
 		GroveID:  grove.ID,
 		BrokerID:   broker1.ID,
@@ -409,7 +409,7 @@ func TestAgentCreate_MultipleContributors(t *testing.T) {
 
 	rec := doRequest(t, srv, http.MethodPost, "/api/v1/agents", body)
 
-	// Should fail with 422 because multiple hosts are available and explicit selection is required
+	// Should fail with 422 because multiple brokers are available and explicit selection is required
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("expected status 422, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -708,14 +708,14 @@ func TestGroveRegisterCaseInsensitive(t *testing.T) {
 	}
 }
 
-func TestGroveRegisterHostDeduplication(t *testing.T) {
+func TestGroveRegisterBrokerDeduplication(t *testing.T) {
 	srv, _ := testServer(t)
 
-	// Register a grove with a host
+	// Register a grove with a broker
 	body1 := map[string]interface{}{
 		"name":      "Test Grove",
 		"gitRemote": "https://github.com/test/dedup-host",
-		"host": map[string]interface{}{
+		"broker": map[string]interface{}{
 			"name":    "test-host",
 			"version": "1.0.0",
 		},
@@ -731,13 +731,13 @@ func TestGroveRegisterHostDeduplication(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	hostID1 := resp1.Host.ID
+	brokerID1 := resp1.Broker.ID
 
-	// Register another grove with the same host name (case-insensitive)
+	// Register another grove with the same broker name (case-insensitive)
 	body2 := map[string]interface{}{
 		"name":      "Another Grove",
 		"gitRemote": "https://github.com/test/another-grove",
-		"host": map[string]interface{}{
+		"broker": map[string]interface{}{
 			"name":    "TEST-HOST", // Different case
 			"version": "1.0.1",
 		},
@@ -753,22 +753,22 @@ func TestGroveRegisterHostDeduplication(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	// Should reuse the same host (case-insensitive match)
-	if resp1.Host.ID != resp2.Host.ID {
-		t.Errorf("expected same host ID for case-insensitive match, got %q and %q", hostID1, resp2.Host.ID)
+	// Should reuse the same broker (case-insensitive match)
+	if resp1.Broker.ID != resp2.Broker.ID {
+		t.Errorf("expected same broker ID for case-insensitive match, got %q and %q", brokerID1, resp2.Broker.ID)
 	}
 
 	// The version should be updated
-	if resp2.Host.Version != "1.0.1" {
-		t.Errorf("expected host version to be updated to '1.0.1', got %q", resp2.Host.Version)
+	if resp2.Broker.Version != "1.0.1" {
+		t.Errorf("expected broker version to be updated to '1.0.1', got %q", resp2.Broker.Version)
 	}
 }
 
-func TestGroveRegisterWithHostID(t *testing.T) {
+func TestGroveRegisterWithBrokerID(t *testing.T) {
 	srv, s := testServer(t)
 	ctx := context.Background()
 
-	// First, create a host directly (simulating Phase 1 + 2 of two-phase flow)
+	// First, create a broker directly (simulating Phase 1 + 2 of two-phase flow)
 	broker := &store.RuntimeBroker{
 		ID:     "host_twophase_test",
 		Name:   "Two Phase Test Host",
@@ -806,11 +806,11 @@ func TestGroveRegisterWithHostID(t *testing.T) {
 		t.Error("expected created to be true for new grove")
 	}
 
-	// Host should be populated in response
+	// Broker should be populated in response
 	if resp.Broker == nil {
-		t.Error("expected host to be set in response")
+		t.Error("expected broker to be set in response")
 	} else if resp.Broker.ID != broker.ID {
-		t.Errorf("expected host ID %q, got %q", broker.ID, resp.Broker.ID)
+		t.Errorf("expected broker ID %q, got %q", broker.ID, resp.Broker.ID)
 	}
 
 	// Should NOT have secretKey (two-phase flow doesn't generate secrets in grove registration)
@@ -827,14 +827,14 @@ func TestGroveRegisterWithHostID(t *testing.T) {
 		t.Errorf("expected 1 contributor, got %d", len(contributors))
 	}
 	if contributors[0].BrokerID != broker.ID {
-		t.Errorf("expected contributor host ID %q, got %q", broker.ID, contributors[0].BrokerID)
+		t.Errorf("expected contributor broker ID %q, got %q", broker.ID, contributors[0].BrokerID)
 	}
 	if contributors[0].LocalPath != "/path/to/project/.scion" {
 		t.Errorf("expected localPath '/path/to/project/.scion', got %q", contributors[0].LocalPath)
 	}
 }
 
-func TestGroveRegisterWithInvalidHostID(t *testing.T) {
+func TestGroveRegisterWithInvalidBrokerID(t *testing.T) {
 	srv, _ := testServer(t)
 
 	// Try to register grove with non-existent brokerId
@@ -876,7 +876,7 @@ func TestAddContributor(t *testing.T) {
 		t.Fatalf("failed to create grove: %v", err)
 	}
 
-	// Create a host
+	// Create a broker
 	broker := &store.RuntimeBroker{
 		ID:     "host_contrib_test",
 		Name:   "Contributor Test Host",
@@ -909,7 +909,7 @@ func TestAddContributor(t *testing.T) {
 		t.Fatal("expected contributor in response")
 	}
 	if resp.Contributor.BrokerID != broker.ID {
-		t.Errorf("expected host ID %q, got %q", broker.ID, resp.Contributor.BrokerID)
+		t.Errorf("expected broker ID %q, got %q", broker.ID, resp.Contributor.BrokerID)
 	}
 	if resp.Contributor.LocalPath != "/home/user/project/.scion" {
 		t.Errorf("expected localPath, got %q", resp.Contributor.LocalPath)
@@ -941,7 +941,7 @@ func TestListContributors(t *testing.T) {
 		t.Fatalf("failed to create grove: %v", err)
 	}
 
-	// Create and add a host as contributor
+	// Create and add a broker as contributor
 	broker := &store.RuntimeBroker{
 		ID:     "host_list_contrib",
 		Name:   "List Contributors Host",
@@ -981,7 +981,7 @@ func TestListContributors(t *testing.T) {
 		t.Errorf("expected 1 contributor, got %d", len(contributors))
 	}
 	if contributors[0].BrokerID != broker.ID {
-		t.Errorf("expected host ID %q, got %q", broker.ID, contributors[0].BrokerID)
+		t.Errorf("expected broker ID %q, got %q", broker.ID, contributors[0].BrokerID)
 	}
 }
 
@@ -1051,7 +1051,7 @@ func TestRuntimeBrokerList(t *testing.T) {
 	}
 
 	if len(resp.Brokers) != 1 {
-		t.Errorf("expected 1 host, got %d", len(resp.Brokers))
+		t.Errorf("expected 1 broker, got %d", len(resp.Brokers))
 	}
 }
 
@@ -1121,7 +1121,7 @@ func TestRuntimeBrokerListWithGroveLocalPath(t *testing.T) {
 		t.Fatalf("failed to create runtime broker: %v", err)
 	}
 
-	// Add host as grove contributor with a local path
+	// Add broker as grove contributor with a local path
 	contrib := &store.GroveContributor{
 		GroveID:   grove.ID,
 		BrokerID:    broker.ID,
@@ -1147,11 +1147,11 @@ func TestRuntimeBrokerListWithGroveLocalPath(t *testing.T) {
 	}
 
 	if len(resp.Brokers) != 1 {
-		t.Errorf("expected 1 host, got %d", len(resp.Brokers))
+		t.Errorf("expected 1 broker, got %d", len(resp.Brokers))
 	}
 
 	if resp.Brokers[0].ID != "host_localpath_test" {
-		t.Errorf("expected host ID 'host_localpath_test', got %q", resp.Brokers[0].ID)
+		t.Errorf("expected broker ID 'host_localpath_test', got %q", resp.Brokers[0].ID)
 	}
 
 	if resp.Brokers[0].LocalPath != "/path/to/project/.scion" {
@@ -1171,16 +1171,16 @@ func TestRuntimeBrokerListWithGroveLocalPath(t *testing.T) {
 	}
 
 	if len(resp2.Brokers) != 1 {
-		t.Errorf("expected 1 host, got %d", len(resp2.Brokers))
+		t.Errorf("expected 1 broker, got %d", len(resp2.Brokers))
 	}
 }
 
 // ============================================================================
-// Two-Phase Host Registration Tests
+// Two-Phase Broker Registration Tests
 // ============================================================================
 
-// testServerWithHostAuth creates a test server with host auth enabled.
-func testServerWithHostAuth(t *testing.T) (*Server, store.Store) {
+// testServerWithBrokerAuth creates a test server with broker auth enabled.
+func testServerWithBrokerAuth(t *testing.T) (*Server, store.Store) {
 	t.Helper()
 	s, err := sqlite.New(":memory:")
 	if err != nil {
@@ -1198,8 +1198,8 @@ func testServerWithHostAuth(t *testing.T) (*Server, store.Store) {
 	return srv, s
 }
 
-func TestHostRegistrationTwoPhaseFlow(t *testing.T) {
-	srv, _ := testServerWithHostAuth(t)
+func TestBrokerRegistrationTwoPhaseFlow(t *testing.T) {
+	srv, _ := testServerWithBrokerAuth(t)
 
 	// Phase 1: Create broker registration (requires admin auth)
 	createBody := map[string]interface{}{
@@ -1274,9 +1274,9 @@ func TestHostRegistrationTwoPhaseFlow(t *testing.T) {
 		t.Error("expected grove to be created")
 	}
 	if groveResp.Broker == nil {
-		t.Error("expected host in response")
+		t.Error("expected broker in response")
 	} else if groveResp.Broker.ID != joinResp.BrokerID {
-		t.Errorf("expected host ID %q, got %q", joinResp.BrokerID, groveResp.Broker.ID)
+		t.Errorf("expected broker ID %q, got %q", joinResp.BrokerID, groveResp.Broker.ID)
 	}
 
 	// The new flow should NOT return a secretKey from grove registration
@@ -1285,17 +1285,17 @@ func TestHostRegistrationTwoPhaseFlow(t *testing.T) {
 	}
 }
 
-func TestHostJoinWithInvalidToken(t *testing.T) {
-	srv, _ := testServerWithHostAuth(t)
+func TestBrokerJoinWithInvalidToken(t *testing.T) {
+	srv, _ := testServerWithBrokerAuth(t)
 
-	// Phase 1: Create host
+	// Phase 1: Create broker
 	createBody := map[string]interface{}{
 		"name": "invalid-token-host",
 	}
 
 	rec1 := doRequest(t, srv, http.MethodPost, "/api/v1/brokers", createBody)
 	if rec1.Code != http.StatusCreated {
-		t.Fatalf("failed to create host: %s", rec1.Body.String())
+		t.Fatalf("failed to create broker: %s", rec1.Body.String())
 	}
 
 	var createResp CreateBrokerRegistrationResponse

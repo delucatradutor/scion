@@ -241,7 +241,7 @@ func TestUnifiedAuthMiddleware_CLIAuthEndpointsSkipped(t *testing.T) {
 	}
 }
 
-func TestUnifiedAuthMiddleware_HostAuthPassthrough(t *testing.T) {
+func TestUnifiedAuthMiddleware_BrokerAuthPassthrough(t *testing.T) {
 	// Configure middleware with no auth methods enabled
 	cfg := AuthConfig{
 		Mode:  "production",

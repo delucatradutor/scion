@@ -115,7 +115,7 @@ func TestBrokerSecretForeignKey(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 
-	// Try to create secret for non-existent host
+	// Try to create secret for non-existent broker
 	secret := &store.BrokerSecret{
 		BrokerID:    "non-existent-host",
 		SecretKey: []byte("test-secret"),
@@ -125,7 +125,7 @@ func TestBrokerSecretForeignKey(t *testing.T) {
 
 	err := s.CreateBrokerSecret(ctx, secret)
 	if err == nil {
-		t.Error("Expected error when creating secret for non-existent host")
+		t.Error("Expected error when creating secret for non-existent broker")
 	}
 }
 
@@ -214,7 +214,7 @@ func TestCleanExpiredJoinTokens(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 
-	// Create two hosts
+	// Create two brokers
 	host1ID := uuid.New().String()
 	host2ID := uuid.New().String()
 	for i, id := range []string{host1ID, host2ID} {
@@ -290,7 +290,7 @@ func TestBrokerSecretCascadeDelete(t *testing.T) {
 		t.Fatalf("failed to create runtime broker: %v", err)
 	}
 
-	// Create a secret for the host
+	// Create a secret for the broker
 	secret := &store.BrokerSecret{
 		BrokerID:    brokerID,
 		SecretKey: []byte("test-secret"),

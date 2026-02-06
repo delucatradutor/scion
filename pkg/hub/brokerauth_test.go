@@ -38,11 +38,11 @@ func setupTestBrokerAuthService(t *testing.T) (*BrokerAuthService, store.Store) 
 	return svc, s
 }
 
-func TestHostRegistrationAndJoin(t *testing.T) {
+func TestBrokerRegistrationAndJoin(t *testing.T) {
 	svc, _ := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
-	// Create a host registration
+	// Create a broker registration
 	req := CreateBrokerRegistrationRequest{
 		Name: "test-host",
 		Labels: map[string]string{
@@ -108,7 +108,7 @@ func TestJoinWithInvalidToken(t *testing.T) {
 	svc, _ := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
-	// Create a host registration
+	// Create a broker registration
 	req := CreateBrokerRegistrationRequest{Name: "test-host"}
 	resp, err := svc.CreateBrokerRegistration(ctx, req, "admin")
 	if err != nil {
@@ -147,7 +147,7 @@ func TestJoinWithExpiredToken(t *testing.T) {
 	svc := NewBrokerAuthService(config, s)
 	ctx := context.Background()
 
-	// Create a host registration (token will already be expired)
+	// Create a broker registration (token will already be expired)
 	req := CreateBrokerRegistrationRequest{Name: "test-host"}
 	resp, err := svc.CreateBrokerRegistration(ctx, req, "admin")
 	if err != nil {
@@ -175,7 +175,7 @@ func TestJoinTokenSingleUse(t *testing.T) {
 	svc, _ := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
-	// Create and complete a host registration
+	// Create and complete a broker registration
 	req := CreateBrokerRegistrationRequest{Name: "test-host"}
 	resp, err := svc.CreateBrokerRegistration(ctx, req, "admin")
 	if err != nil {
@@ -206,7 +206,7 @@ func TestValidateBrokerSignature(t *testing.T) {
 	svc, s := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
-	// Create a host and set up its secret
+	// Create a broker and set up its secret
 	brokerID := uuid.New().String()
 	broker := &store.RuntimeBroker{
 		ID:      brokerID,
@@ -263,8 +263,8 @@ func TestValidateBrokerSignature(t *testing.T) {
 	if identity.BrokerID() != brokerID {
 		t.Errorf("BrokerID mismatch: got %s, want %s", identity.BrokerID(), brokerID)
 	}
-	if identity.Type() != "host" {
-		t.Errorf("Type mismatch: got %s, want host", identity.Type())
+	if identity.Type() != "broker" {
+		t.Errorf("Type mismatch: got %s, want broker", identity.Type())
 	}
 }
 
@@ -272,7 +272,7 @@ func TestValidateBrokerSignature_InvalidSignature(t *testing.T) {
 	svc, s := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
-	// Create a host with secret
+	// Create a broker with secret
 	brokerID := uuid.New().String()
 	broker := &store.RuntimeBroker{
 		ID:      brokerID,
@@ -328,7 +328,7 @@ func TestValidateBrokerSignature_ClockSkew(t *testing.T) {
 	svc := NewBrokerAuthService(config, s)
 	ctx := context.Background()
 
-	// Create a host with secret
+	// Create a broker with secret
 	brokerID := uuid.New().String()
 	broker := &store.RuntimeBroker{
 		ID:      brokerID,
@@ -380,7 +380,7 @@ func TestValidateBrokerSignature_MissingHeaders(t *testing.T) {
 		expectedErr string
 	}{
 		{
-			name: "missing host ID",
+			name: "missing broker ID",
 			setupReq: func(r *http.Request) {
 				r.Header.Set(HeaderTimestamp, strconv.FormatInt(time.Now().Unix(), 10))
 				r.Header.Set(HeaderSignature, "sig")
@@ -425,7 +425,7 @@ func TestBrokerAuthMiddleware(t *testing.T) {
 	svc, s := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
-	// Create a host with secret
+	// Create a broker with secret
 	brokerID := uuid.New().String()
 	broker := &store.RuntimeBroker{
 		ID:      brokerID,
@@ -451,7 +451,7 @@ func TestBrokerAuthMiddleware(t *testing.T) {
 		t.Fatalf("failed to create broker secret: %v", err)
 	}
 
-	// Create a handler that checks for host identity
+	// Create a handler that checks for broker identity
 	var gotIdentity BrokerIdentity
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotIdentity = GetBrokerIdentityFromContext(r.Context())
@@ -461,8 +461,8 @@ func TestBrokerAuthMiddleware(t *testing.T) {
 	// Wrap with middleware
 	wrapped := BrokerAuthMiddleware(svc)(handler)
 
-	// Test 1: Request without host ID header should pass through
-	t.Run("no host header passes through", func(t *testing.T) {
+	// Test 1: Request without broker ID header should pass through
+	t.Run("no broker header passes through", func(t *testing.T) {
 		gotIdentity = nil
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
 		w := httptest.NewRecorder()
@@ -554,7 +554,7 @@ func TestGenerateAndStoreSecret(t *testing.T) {
 	svc, s := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
-	// Create a host first (GenerateAndStoreSecret requires an existing host)
+	// Create a broker first (GenerateAndStoreSecret requires an existing broker)
 	brokerID := uuid.New().String()
 	broker := &store.RuntimeBroker{
 		ID:      brokerID,
@@ -598,12 +598,12 @@ func TestGenerateAndStoreSecret(t *testing.T) {
 }
 
 // TestGenerateAndStoreSecret_ReturnsExistingSecret tests that calling GenerateAndStoreSecret
-// multiple times for the same host returns the existing secret.
+// multiple times for the same broker returns the existing secret.
 func TestGenerateAndStoreSecret_ReturnsExistingSecret(t *testing.T) {
 	svc, s := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
-	// Create a host
+	// Create a broker
 	brokerID := uuid.New().String()
 	broker := &store.RuntimeBroker{
 		ID:      brokerID,
@@ -635,8 +635,8 @@ func TestGenerateAndStoreSecret_ReturnsExistingSecret(t *testing.T) {
 	}
 }
 
-// TestGenerateAndStoreSecret_RequiresHostID tests that empty brokerID is rejected.
-func TestGenerateAndStoreSecret_RequiresHostID(t *testing.T) {
+// TestGenerateAndStoreSecret_RequiresBrokerID tests that empty brokerID is rejected.
+func TestGenerateAndStoreSecret_RequiresBrokerID(t *testing.T) {
 	svc, _ := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
@@ -655,7 +655,7 @@ func TestGenerateAndStoreSecret_CanBeUsedForHMACAuth(t *testing.T) {
 	svc, s := setupTestBrokerAuthService(t)
 	ctx := context.Background()
 
-	// Create a host
+	// Create a broker
 	brokerID := uuid.New().String()
 	broker := &store.RuntimeBroker{
 		ID:      brokerID,

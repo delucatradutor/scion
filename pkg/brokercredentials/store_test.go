@@ -174,7 +174,7 @@ func TestStore_SaveValidation(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			name: "missing host ID",
+			name: "missing broker ID",
 			creds: &BrokerCredentials{
 				BrokerID:    "",
 				SecretKey: "abc",

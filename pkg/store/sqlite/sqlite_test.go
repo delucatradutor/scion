@@ -338,7 +338,7 @@ func TestRuntimeBrokerLookupByName(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 
-	// Create a host
+	// Create a broker
 	broker := &store.RuntimeBroker{
 		ID:     api.NewUUID(),
 		Name:   "My-Laptop",
@@ -376,7 +376,7 @@ func TestRuntimeBrokerCRUD(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 
-	// Create host
+	// Create broker
 	broker := &store.RuntimeBroker{
 		ID:      api.NewUUID(),
 		Name:    "Dev Laptop",
@@ -398,7 +398,7 @@ func TestRuntimeBrokerCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotZero(t, broker.Created)
 
-	// Get host
+	// Get broker
 	retrieved, err := s.GetRuntimeBroker(ctx, broker.ID)
 	require.NoError(t, err)
 	assert.Equal(t, broker.Name, retrieved.Name)
@@ -406,7 +406,7 @@ func TestRuntimeBrokerCRUD(t *testing.T) {
 	assert.Len(t, retrieved.Profiles, 1)
 	assert.Equal(t, "docker", retrieved.Profiles[0].Type)
 
-	// Update host
+	// Update broker
 	retrieved.Status = store.BrokerStatusOffline
 	err = s.UpdateRuntimeBroker(ctx, retrieved)
 	require.NoError(t, err)
@@ -426,7 +426,7 @@ func TestRuntimeBrokerCRUD(t *testing.T) {
 	assert.Equal(t, store.BrokerStatusOnline, retrieved.Status)
 	assert.NotZero(t, retrieved.LastHeartbeat)
 
-	// Delete host
+	// Delete broker
 	err = s.DeleteRuntimeBroker(ctx, broker.ID)
 	require.NoError(t, err)
 
@@ -438,7 +438,7 @@ func TestRuntimeBrokerList(t *testing.T) {
 	s := setupTestStore(t)
 	ctx := context.Background()
 
-	// Create hosts
+	// Create brokers
 	for i := 0; i < 3; i++ {
 		broker := &store.RuntimeBroker{
 			ID:     api.NewUUID(),
@@ -668,7 +668,7 @@ func TestGroveContributors(t *testing.T) {
 	}
 	require.NoError(t, s.CreateGrove(ctx, grove))
 
-	// Create hosts
+	// Create brokers
 	broker1 := &store.RuntimeBroker{
 		ID:     api.NewUUID(),
 		Name:   "Host 1",
@@ -718,7 +718,7 @@ func TestGroveContributors(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, contributors, 2)
 
-	// Get host groves
+	// Get broker groves
 	groves, err := s.GetBrokerGroves(ctx, broker1.ID)
 	require.NoError(t, err)
 	assert.Len(t, groves, 1)
@@ -737,7 +737,7 @@ func TestGroveContributors(t *testing.T) {
 		}
 	}
 
-	// Verify grove's active host count
+	// Verify grove's active broker count
 	retrievedGrove, err := s.GetGrove(ctx, grove.ID)
 	require.NoError(t, err)
 	assert.Equal(t, 1, retrievedGrove.ActiveBrokerCount) // Only broker2 is online

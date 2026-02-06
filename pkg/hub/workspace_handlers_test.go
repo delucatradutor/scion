@@ -796,7 +796,7 @@ func TestWorkspaceUnknownAction(t *testing.T) {
 	}
 }
 
-func TestHostError_Error(t *testing.T) {
+func TestBrokerError_Error(t *testing.T) {
 	tests := []struct {
 		name     string
 		err      *brokerError
@@ -805,7 +805,7 @@ func TestHostError_Error(t *testing.T) {
 		{
 			name:     "with brokerID",
 			err:      &brokerError{brokerID: "host-123", msg: "connection failed"},
-			expected: "host host-123: connection failed",
+			expected: "broker host-123: connection failed",
 		},
 		{
 			name:     "without brokerID",
@@ -829,13 +829,13 @@ func TestHostError_Error(t *testing.T) {
 	}
 }
 
-func TestErrHostNotConnected(t *testing.T) {
-	err := errHostNotConnected("host-abc")
+func TestErrBrokerNotConnected(t *testing.T) {
+	err := errBrokerNotConnected("host-abc")
 	if err == nil {
 		t.Fatal("expected non-nil error")
 	}
 
-	expected := "host host-abc: host not connected via control channel"
+	expected := "broker host-abc: broker not connected via control channel"
 	if err.Error() != expected {
 		t.Errorf("error message = %q, want %q", err.Error(), expected)
 	}

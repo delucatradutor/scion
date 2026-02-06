@@ -27,7 +27,7 @@ func TestAuthenticatedBrokerClient_CreateAgent(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	// Create a test host
+	// Create a test broker
 	brokerID := "test-host-123"
 	secretKey := []byte("test-secret-key-32-bytes-long!!!")
 
@@ -76,9 +76,9 @@ func TestAuthenticatedBrokerClient_CreateAgent(t *testing.T) {
 			t.Error("missing X-Scion-Signature header")
 		}
 
-		// Verify host ID matches
+		// Verify broker ID matches
 		if got := r.Header.Get(apiclient.HeaderBrokerID); got != brokerID {
-			t.Errorf("wrong host ID: got %s, want %s", got, brokerID)
+			t.Errorf("wrong broker ID: got %s, want %s", got, brokerID)
 		}
 
 		requestValidated = true
@@ -142,7 +142,7 @@ func TestAuthenticatedBrokerClient_StartAgent(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	// Create a test host
+	// Create a test broker
 	brokerID := "test-host-456"
 	secretKey := []byte("another-secret-key-32-bytes!!!!!")
 
@@ -217,7 +217,7 @@ func TestAuthenticatedBrokerClient_MissingSecret(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	// Create a test host without a secret
+	// Create a test broker without a secret
 	brokerID := "test-host-no-secret"
 
 	broker := &store.RuntimeBroker{
@@ -279,7 +279,7 @@ func TestAuthenticatedBrokerClient_ExpiredSecret(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	// Create a test host with expired secret
+	// Create a test broker with expired secret
 	brokerID := "test-host-expired"
 	secretKey := []byte("expired-secret-key-32-bytes!!!!!")
 
@@ -352,7 +352,7 @@ func TestAuthenticatedBrokerClient_AllOperations(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	// Create a test host
+	// Create a test broker
 	brokerID := "test-host-ops"
 	secretKey := []byte("ops-test-secret-key-32-bytes!!!!")
 
