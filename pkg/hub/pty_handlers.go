@@ -124,17 +124,19 @@ func (s *Server) handleAgentPTY(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create PTY session
-	session := newPTYSession(ctx, agentID, agent.RuntimeBrokerID, conn, s.controlChannel)
+	// Use agent.Slug for the stream since that's what the broker uses to look up containers
+	// (containers are labeled with scion.name=<slug>)
+	session := newPTYSession(ctx, agent.Slug, agent.RuntimeBrokerID, conn, s.controlChannel)
 	defer session.Close()
 
-	slog.Info("PTY session started", "agentID", agentID, "user", identity.ID())
+	slog.Info("PTY session started", "agentID", agentID, "slug", agent.Slug, "user", identity.ID())
 
 	// Run the session
 	if err := session.Run(); err != nil && err != io.EOF {
-		slog.Error("PTY session error", "agentID", agentID, "error", err)
+		slog.Error("PTY session error", "agentID", agentID, "slug", agent.Slug, "error", err)
 	}
 
-	slog.Info("PTY session ended", "agentID", agentID)
+	slog.Info("PTY session ended", "agentID", agentID, "slug", agent.Slug)
 }
 
 // extractAgentIDFromPTYPath extracts the agent ID from a PTY path.
