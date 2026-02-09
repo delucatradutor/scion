@@ -222,6 +222,90 @@ func TestRequireGrovePath_ProjectExists(t *testing.T) {
 	}
 }
 
+func TestResolveGrovePath_GlobalViaWalkUp(t *testing.T) {
+	// Test that when FindProjectRoot walks up and finds ~/.scion,
+	// it is correctly identified as the global grove (isGlobal=true)
+
+	// Create a temp home with .scion
+	tmpHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	globalDir := filepath.Join(tmpHome, GlobalDir)
+	if err := os.Mkdir(globalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a subdirectory under home (simulating ~/Desktop/some-sub)
+	subDir := filepath.Join(tmpHome, "Desktop", "some-sub")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origWd, _ := os.Getwd()
+	defer os.Chdir(origWd)
+
+	if err := os.Chdir(subDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// ResolveGrovePath should walk up and find ~/.scion,
+	// and recognize it as the global grove
+	got, isGlobal, err := ResolveGrovePath("")
+	if err != nil {
+		t.Fatalf("ResolveGrovePath failed: %v", err)
+	}
+
+	evalGot, _ := filepath.EvalSymlinks(got)
+	evalGlobal, _ := filepath.EvalSymlinks(globalDir)
+
+	if evalGot != evalGlobal {
+		t.Errorf("expected path %q, got %q", evalGlobal, evalGot)
+	}
+	if !isGlobal {
+		t.Errorf("expected isGlobal=true when global grove found via walk-up, got false")
+	}
+}
+
+func TestResolveGrovePath_ProjectNotGlobal(t *testing.T) {
+	// Test that a project grove (not at ~/) is correctly identified as NOT global
+
+	tmpHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	// Create a project with .scion outside of home
+	tmpProject := t.TempDir()
+	projectScion := filepath.Join(tmpProject, ".scion")
+	if err := os.Mkdir(projectScion, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origWd, _ := os.Getwd()
+	defer os.Chdir(origWd)
+
+	if err := os.Chdir(tmpProject); err != nil {
+		t.Fatal(err)
+	}
+
+	got, isGlobal, err := ResolveGrovePath("")
+	if err != nil {
+		t.Fatalf("ResolveGrovePath failed: %v", err)
+	}
+
+	evalGot, _ := filepath.EvalSymlinks(got)
+	evalProject, _ := filepath.EvalSymlinks(projectScion)
+
+	if evalGot != evalProject {
+		t.Errorf("expected path %q, got %q", evalProject, evalGot)
+	}
+	if isGlobal {
+		t.Errorf("expected isGlobal=false for project grove, got true")
+	}
+}
+
 func containsSubstring(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstringHelper(s, substr))
 }

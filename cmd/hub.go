@@ -510,7 +510,7 @@ func printGroveContext(client hubclient.Client, grovePath string, isGlobal bool,
 	fmt.Println("-------------")
 	fmt.Printf("Grove:      %s\n", groveName)
 	if isGlobal {
-		fmt.Printf("Type:       global\n")
+		fmt.Printf("Type:       user global\n")
 	} else {
 		fmt.Printf("Type:       project\n")
 	}
@@ -614,6 +614,11 @@ func getGroveContextJSON(client hubclient.Client, grovePath string, isGlobal boo
 
 	result["name"] = groveName
 	result["isGlobal"] = isGlobal
+	if isGlobal {
+		result["type"] = "user global"
+	} else {
+		result["type"] = "project"
+	}
 
 	// Get git remote for this grove (if not global)
 	var gitRemote string

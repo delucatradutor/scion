@@ -164,6 +164,11 @@ func ResolveGrovePath(path string) (string, bool, error) {
 	if path == "" {
 		// Try to find project grove first
 		if p, ok := FindProjectRoot(); ok {
+			// Check if the found project root is actually the global directory
+			globalDir, _ := GetGlobalDir()
+			if p == globalDir {
+				return p, true, nil
+			}
 			return p, false, nil
 		}
 		// Fallback to global
