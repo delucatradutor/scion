@@ -1073,6 +1073,231 @@ func TestGroveGroupLifecycle(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
+// =============================================================================
+// Phase 4: CheckDelegatedAccess and GetGroupsByIDs
+// =============================================================================
+
+func TestCheckDelegatedAccess_Enabled(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// Enable delegation on the test agent and set creator
+	_, err := gs.client.Agent.UpdateOneID(testAgentUID).
+		SetDelegationEnabled(true).
+		SetCreatorID(testUserUID).
+		Save(ctx)
+	require.NoError(t, err)
+
+	// Check with matching DelegatedFrom condition
+	conditions := &store.PolicyConditions{
+		DelegatedFrom: &store.DelegatedFromCondition{
+			PrincipalType: "user",
+			PrincipalID:   testUserUID.String(),
+		},
+	}
+	result, err := gs.CheckDelegatedAccess(ctx, testAgentUID.String(), conditions)
+	require.NoError(t, err)
+	assert.True(t, result)
+}
+
+func TestCheckDelegatedAccess_Disabled(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// Creator is set but delegation is disabled (default)
+	_, err := gs.client.Agent.UpdateOneID(testAgentUID).
+		SetCreatorID(testUserUID).
+		Save(ctx)
+	require.NoError(t, err)
+
+	conditions := &store.PolicyConditions{
+		DelegatedFrom: &store.DelegatedFromCondition{
+			PrincipalType: "user",
+			PrincipalID:   testUserUID.String(),
+		},
+	}
+	result, err := gs.CheckDelegatedAccess(ctx, testAgentUID.String(), conditions)
+	require.NoError(t, err)
+	assert.False(t, result)
+}
+
+func TestCheckDelegatedAccess_SuspendedCreator(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// Suspend the creator
+	_, err := gs.client.User.UpdateOneID(testUserUID).
+		SetStatus("suspended").
+		Save(ctx)
+	require.NoError(t, err)
+
+	// Enable delegation
+	_, err = gs.client.Agent.UpdateOneID(testAgentUID).
+		SetDelegationEnabled(true).
+		SetCreatorID(testUserUID).
+		Save(ctx)
+	require.NoError(t, err)
+
+	conditions := &store.PolicyConditions{
+		DelegatedFrom: &store.DelegatedFromCondition{
+			PrincipalType: "user",
+			PrincipalID:   testUserUID.String(),
+		},
+	}
+	result, err := gs.CheckDelegatedAccess(ctx, testAgentUID.String(), conditions)
+	require.NoError(t, err)
+	assert.False(t, result)
+}
+
+func TestCheckDelegatedAccess_NoCreator(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// Enable delegation but don't set a creator
+	_, err := gs.client.Agent.UpdateOneID(testAgentUID).
+		SetDelegationEnabled(true).
+		Save(ctx)
+	require.NoError(t, err)
+
+	conditions := &store.PolicyConditions{
+		DelegatedFrom: &store.DelegatedFromCondition{
+			PrincipalType: "user",
+			PrincipalID:   testUserUID.String(),
+		},
+	}
+	result, err := gs.CheckDelegatedAccess(ctx, testAgentUID.String(), conditions)
+	require.NoError(t, err)
+	assert.False(t, result)
+}
+
+func TestCheckDelegatedAccess_GroupCondition(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// Create a group and add the user to it
+	g := &store.Group{
+		ID:   uuid.New().String(),
+		Name: "Platform Team",
+		Slug: "platform-team-deleg",
+	}
+	require.NoError(t, gs.CreateGroup(ctx, g))
+	require.NoError(t, gs.AddGroupMember(ctx, &store.GroupMember{
+		GroupID:    g.ID,
+		MemberType: store.GroupMemberTypeUser,
+		MemberID:   testUserUID.String(),
+		Role:       store.GroupMemberRoleMember,
+	}))
+
+	// Enable delegation and set creator
+	_, err := gs.client.Agent.UpdateOneID(testAgentUID).
+		SetDelegationEnabled(true).
+		SetCreatorID(testUserUID).
+		Save(ctx)
+	require.NoError(t, err)
+
+	// Check with DelegatedFromGroup matching the creator's group
+	conditions := &store.PolicyConditions{
+		DelegatedFromGroup: g.ID,
+	}
+	result, err := gs.CheckDelegatedAccess(ctx, testAgentUID.String(), conditions)
+	require.NoError(t, err)
+	assert.True(t, result)
+}
+
+func TestCheckDelegatedAccess_GroupCondition_NotMember(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// Create a group but DON'T add the user to it
+	g := &store.Group{
+		ID:   uuid.New().String(),
+		Name: "Other Team",
+		Slug: "other-team-deleg",
+	}
+	require.NoError(t, gs.CreateGroup(ctx, g))
+
+	// Enable delegation and set creator
+	_, err := gs.client.Agent.UpdateOneID(testAgentUID).
+		SetDelegationEnabled(true).
+		SetCreatorID(testUserUID).
+		Save(ctx)
+	require.NoError(t, err)
+
+	// Check with DelegatedFromGroup — creator is NOT a member
+	conditions := &store.PolicyConditions{
+		DelegatedFromGroup: g.ID,
+	}
+	result, err := gs.CheckDelegatedAccess(ctx, testAgentUID.String(), conditions)
+	require.NoError(t, err)
+	assert.False(t, result)
+}
+
+func TestCheckDelegatedAccess_NilConditions(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	result, err := gs.CheckDelegatedAccess(ctx, testAgentUID.String(), nil)
+	require.NoError(t, err)
+	assert.False(t, result)
+}
+
+func TestCheckDelegatedAccess_NoDelegationConditions(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	// Conditions exist but no delegation fields
+	conditions := &store.PolicyConditions{
+		Labels: map[string]string{"env": "prod"},
+	}
+	result, err := gs.CheckDelegatedAccess(ctx, testAgentUID.String(), conditions)
+	require.NoError(t, err)
+	assert.False(t, result)
+}
+
+func TestGetGroupsByIDs(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	g1 := &store.Group{ID: uuid.New().String(), Name: "Group 1", Slug: "gbi-1"}
+	g2 := &store.Group{ID: uuid.New().String(), Name: "Group 2", Slug: "gbi-2"}
+	require.NoError(t, gs.CreateGroup(ctx, g1))
+	require.NoError(t, gs.CreateGroup(ctx, g2))
+
+	groups, err := gs.GetGroupsByIDs(ctx, []string{g1.ID, g2.ID})
+	require.NoError(t, err)
+	assert.Len(t, groups, 2)
+
+	names := map[string]bool{}
+	for _, g := range groups {
+		names[g.Name] = true
+	}
+	assert.True(t, names["Group 1"])
+	assert.True(t, names["Group 2"])
+}
+
+func TestGetGroupsByIDs_Empty(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	groups, err := gs.GetGroupsByIDs(ctx, []string{})
+	require.NoError(t, err)
+	assert.Nil(t, groups)
+}
+
+func TestGetGroupsByIDs_MissingIDs(t *testing.T) {
+	gs := newTestGroupStore(t)
+	ctx := context.Background()
+
+	g1 := &store.Group{ID: uuid.New().String(), Name: "Exists", Slug: "gbi-exists"}
+	require.NoError(t, gs.CreateGroup(ctx, g1))
+
+	// One valid, one missing
+	groups, err := gs.GetGroupsByIDs(ctx, []string{g1.ID, uuid.New().String()})
+	require.NoError(t, err)
+	assert.Len(t, groups, 1)
+	assert.Equal(t, "Exists", groups[0].Name)
+}
+
 func TestListGroupsWithGroveIDFilter(t *testing.T) {
 	gs := newTestGroupStore(t)
 	ctx := context.Background()
