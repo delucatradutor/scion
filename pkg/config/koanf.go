@@ -15,8 +15,10 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/json"
@@ -139,7 +141,22 @@ func loadSettingsFile(k *koanf.Koanf, dir string) error {
 // GetDefaultSettingsDataYAML returns the embedded default settings in YAML format.
 // This function adjusts the local profile runtime based on the OS.
 func GetDefaultSettingsDataYAML() ([]byte, error) {
-	return EmbedsFS.ReadFile("embeds/default_settings.yaml")
+	data, err := EmbedsFS.ReadFile("embeds/default_settings.yaml")
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply OS-specific runtime adjustment for local profile.
+	// The embedded template defaults to "container" (macOS). On non-darwin,
+	// replace with "docker".
+	if goruntime.GOOS != "darwin" {
+		data = bytes.Replace(data,
+			[]byte("runtime: container  # Auto-adjusted by OS"),
+			[]byte("runtime: docker  # Auto-adjusted by OS"),
+			1)
+	}
+
+	return data, nil
 }
 
 // GetSettingsPath returns the path to the settings file in a directory,
