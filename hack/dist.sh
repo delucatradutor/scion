@@ -14,6 +14,13 @@
 # limitations under the License.
 
 # hack/dist.sh - Build and distribute the scion CLI binary
+#
+# Usage:
+#   ./hack/dist.sh set-up    # Create bucket, configure IAM, upload installer
+#   ./hack/dist.sh publish   # Build and upload cross-platform binaries
+#
+# End users can then install scion via:
+#   gcloud storage cat gs://scion-dist-<PROJECT_ID>/install.sh | bash
 
 set -euo pipefail
 
@@ -53,8 +60,20 @@ function setup() {
     echo "Setting IAM policy for google.com domain read access..."
     gsutil iam ch "domain:google.com:objectViewer" "gs://${BUCKET_NAME}"
 
+    # Upload install.sh to bucket root with the bucket name baked in
+    echo "Uploading install.sh to bucket root..."
+    local install_src="${SCRIPT_DIR}/install.sh"
+    local install_tmp
+    install_tmp=$(mktemp)
+    sed "s|__BUCKET_NAME__|${BUCKET_NAME}|g" "${install_src}" > "${install_tmp}"
+    gsutil -q cp "${install_tmp}" "gs://${BUCKET_NAME}/install.sh"
+    rm -f "${install_tmp}"
+
     echo "=== Setup complete ==="
     echo "Bucket: gs://${BUCKET_NAME}"
+    echo ""
+    echo "Users can install scion with:"
+    echo "  gcloud storage cat gs://${BUCKET_NAME}/install.sh | bash"
 }
 
 function publish() {
