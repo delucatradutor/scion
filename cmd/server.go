@@ -564,11 +564,20 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 			settings.Hub = &config.HubClientConfig{}
 		}
 
-		// Get broker ID from settings, or generate and persist if not set.
-		// Priority: settings.Hub.BrokerID > cfg.RuntimeBroker.BrokerID > generate new
-		brokerID = settings.Hub.BrokerID
+		// Try loading versioned settings to get broker identity from server.broker
+		versionedSettings, _, vsErr := config.LoadEffectiveSettings("")
+		var vsBroker *config.V1BrokerConfig
+		if vsErr == nil && versionedSettings != nil && versionedSettings.Server != nil {
+			vsBroker = versionedSettings.Server.Broker
+		}
+
+		// Get broker ID: versioned server.broker > legacy settings.Hub > server.yaml config > generate new
+		if vsBroker != nil && vsBroker.BrokerID != "" {
+			brokerID = vsBroker.BrokerID
+		} else {
+			brokerID = settings.Hub.BrokerID
+		}
 		if brokerID == "" {
-			// Fall back to server config if set
 			brokerID = cfg.RuntimeBroker.BrokerID
 		}
 		if brokerID == "" {
@@ -581,9 +590,14 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Get host nickname from settings, or use hostname as default.
-		// Priority: settings.Hub.BrokerNickname > cfg.RuntimeBroker.BrokerName > os.Hostname()
-		brokerName = settings.Hub.BrokerNickname
+		// Get host nickname: versioned server.broker > legacy settings.Hub > server.yaml config > hostname
+		if vsBroker != nil && vsBroker.BrokerNickname != "" {
+			brokerName = vsBroker.BrokerNickname
+		} else if vsBroker != nil && vsBroker.BrokerName != "" {
+			brokerName = vsBroker.BrokerName
+		} else {
+			brokerName = settings.Hub.BrokerNickname
+		}
 		if brokerName == "" {
 			brokerName = cfg.RuntimeBroker.BrokerName
 		}

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env"
@@ -158,12 +159,103 @@ type VersionedSettings struct {
 	Profiles        map[string]V1ProfileConfig      `json:"profiles,omitempty" yaml:"profiles,omitempty" koanf:"profiles"`
 }
 
-// V1ServerConfig is a minimal stub for Phase 2.
-// Full decomposition (broker, database, auth, oauth, storage, secrets) is deferred to Phase 4.
+// V1ServerConfig holds server-side configuration in the versioned settings format.
+// This mirrors GlobalConfig but uses snake_case koanf/yaml tags.
+// Only valid at the global level (~/.scion/settings.yaml), never in grove-level settings.
 type V1ServerConfig struct {
-	Env       string `json:"env,omitempty" yaml:"env,omitempty" koanf:"env"`
-	LogLevel  string `json:"log_level,omitempty" yaml:"log_level,omitempty" koanf:"log_level"`
-	LogFormat string `json:"log_format,omitempty" yaml:"log_format,omitempty" koanf:"log_format"`
+	Env       string              `json:"env,omitempty" yaml:"env,omitempty" koanf:"env"`
+	Hub       *V1ServerHubConfig  `json:"hub,omitempty" yaml:"hub,omitempty" koanf:"hub"`
+	Broker    *V1BrokerConfig     `json:"broker,omitempty" yaml:"broker,omitempty" koanf:"broker"`
+	Database  *V1DatabaseConfig   `json:"database,omitempty" yaml:"database,omitempty" koanf:"database"`
+	Auth      *V1AuthConfig       `json:"auth,omitempty" yaml:"auth,omitempty" koanf:"auth"`
+	OAuth     *V1OAuthConfig      `json:"oauth,omitempty" yaml:"oauth,omitempty" koanf:"oauth"`
+	Storage   *V1StorageConfig    `json:"storage,omitempty" yaml:"storage,omitempty" koanf:"storage"`
+	Secrets   *V1SecretsConfig    `json:"secrets,omitempty" yaml:"secrets,omitempty" koanf:"secrets"`
+	LogLevel  string              `json:"log_level,omitempty" yaml:"log_level,omitempty" koanf:"log_level"`
+	LogFormat string              `json:"log_format,omitempty" yaml:"log_format,omitempty" koanf:"log_format"`
+}
+
+// V1ServerHubConfig holds the Hub API server settings (when running scion-server).
+type V1ServerHubConfig struct {
+	Port         int          `json:"port,omitempty" yaml:"port,omitempty" koanf:"port"`
+	Host         string       `json:"host,omitempty" yaml:"host,omitempty" koanf:"host"`
+	PublicURL    string       `json:"public_url,omitempty" yaml:"public_url,omitempty" koanf:"public_url"`
+	ReadTimeout  string       `json:"read_timeout,omitempty" yaml:"read_timeout,omitempty" koanf:"read_timeout"`
+	WriteTimeout string       `json:"write_timeout,omitempty" yaml:"write_timeout,omitempty" koanf:"write_timeout"`
+	CORS         *V1CORSConfig `json:"cors,omitempty" yaml:"cors,omitempty" koanf:"cors"`
+	AdminEmails  []string     `json:"admin_emails,omitempty" yaml:"admin_emails,omitempty" koanf:"admin_emails"`
+}
+
+// V1BrokerConfig holds Runtime Broker configuration.
+// Includes broker identity fields previously in hub client config.
+type V1BrokerConfig struct {
+	Enabled         bool         `json:"enabled,omitempty" yaml:"enabled,omitempty" koanf:"enabled"`
+	Port            int          `json:"port,omitempty" yaml:"port,omitempty" koanf:"port"`
+	Host            string       `json:"host,omitempty" yaml:"host,omitempty" koanf:"host"`
+	ReadTimeout     string       `json:"read_timeout,omitempty" yaml:"read_timeout,omitempty" koanf:"read_timeout"`
+	WriteTimeout    string       `json:"write_timeout,omitempty" yaml:"write_timeout,omitempty" koanf:"write_timeout"`
+	HubEndpoint     string       `json:"hub_endpoint,omitempty" yaml:"hub_endpoint,omitempty" koanf:"hub_endpoint"`
+	BrokerID        string       `json:"broker_id,omitempty" yaml:"broker_id,omitempty" koanf:"broker_id"`
+	BrokerName      string       `json:"broker_name,omitempty" yaml:"broker_name,omitempty" koanf:"broker_name"`
+	BrokerNickname  string       `json:"broker_nickname,omitempty" yaml:"broker_nickname,omitempty" koanf:"broker_nickname"`
+	BrokerToken     string       `json:"broker_token,omitempty" yaml:"broker_token,omitempty" koanf:"broker_token"`
+	CORS            *V1CORSConfig `json:"cors,omitempty" yaml:"cors,omitempty" koanf:"cors"`
+}
+
+// V1DatabaseConfig holds database settings.
+type V1DatabaseConfig struct {
+	Driver string `json:"driver,omitempty" yaml:"driver,omitempty" koanf:"driver"`
+	URL    string `json:"url,omitempty" yaml:"url,omitempty" koanf:"url"`
+}
+
+// V1AuthConfig holds development authentication settings.
+type V1AuthConfig struct {
+	DevMode           bool     `json:"dev_mode,omitempty" yaml:"dev_mode,omitempty" koanf:"dev_mode"`
+	DevToken          string   `json:"dev_token,omitempty" yaml:"dev_token,omitempty" koanf:"dev_token"`
+	DevTokenFile      string   `json:"dev_token_file,omitempty" yaml:"dev_token_file,omitempty" koanf:"dev_token_file"`
+	AuthorizedDomains []string `json:"authorized_domains,omitempty" yaml:"authorized_domains,omitempty" koanf:"authorized_domains"`
+}
+
+// V1OAuthConfig holds OAuth provider configurations.
+type V1OAuthConfig struct {
+	Web    *V1OAuthClientConfig `json:"web,omitempty" yaml:"web,omitempty" koanf:"web"`
+	CLI    *V1OAuthClientConfig `json:"cli,omitempty" yaml:"cli,omitempty" koanf:"cli"`
+	Device *V1OAuthClientConfig `json:"device,omitempty" yaml:"device,omitempty" koanf:"device"`
+}
+
+// V1OAuthClientConfig holds OAuth provider settings for a specific client type.
+type V1OAuthClientConfig struct {
+	Google *V1OAuthProviderConfig `json:"google,omitempty" yaml:"google,omitempty" koanf:"google"`
+	GitHub *V1OAuthProviderConfig `json:"github,omitempty" yaml:"github,omitempty" koanf:"github"`
+}
+
+// V1OAuthProviderConfig holds OAuth credentials for a single provider.
+type V1OAuthProviderConfig struct {
+	ClientID     string `json:"client_id,omitempty" yaml:"client_id,omitempty" koanf:"client_id"`
+	ClientSecret string `json:"client_secret,omitempty" yaml:"client_secret,omitempty" koanf:"client_secret"`
+}
+
+// V1StorageConfig holds storage settings.
+type V1StorageConfig struct {
+	Provider  string `json:"provider,omitempty" yaml:"provider,omitempty" koanf:"provider"`
+	Bucket    string `json:"bucket,omitempty" yaml:"bucket,omitempty" koanf:"bucket"`
+	LocalPath string `json:"local_path,omitempty" yaml:"local_path,omitempty" koanf:"local_path"`
+}
+
+// V1SecretsConfig holds secrets backend settings.
+type V1SecretsConfig struct {
+	Backend        string `json:"backend,omitempty" yaml:"backend,omitempty" koanf:"backend"`
+	GCPProjectID   string `json:"gcp_project_id,omitempty" yaml:"gcp_project_id,omitempty" koanf:"gcp_project_id"`
+	GCPCredentials string `json:"gcp_credentials,omitempty" yaml:"gcp_credentials,omitempty" koanf:"gcp_credentials"`
+}
+
+// V1CORSConfig holds CORS settings for server endpoints.
+type V1CORSConfig struct {
+	Enabled        bool     `json:"enabled,omitempty" yaml:"enabled,omitempty" koanf:"enabled"`
+	AllowedOrigins []string `json:"allowed_origins,omitempty" yaml:"allowed_origins,omitempty" koanf:"allowed_origins"`
+	AllowedMethods []string `json:"allowed_methods,omitempty" yaml:"allowed_methods,omitempty" koanf:"allowed_methods"`
+	AllowedHeaders []string `json:"allowed_headers,omitempty" yaml:"allowed_headers,omitempty" koanf:"allowed_headers"`
+	MaxAge         int      `json:"max_age,omitempty" yaml:"max_age,omitempty" koanf:"max_age"`
 }
 
 // V1HubClientConfig defines hub client connection settings for versioned config.
@@ -283,20 +375,409 @@ func LoadVersionedSettings(grovePath string) (*VersionedSettings, error) {
 func versionedEnvKeyMapper(s string) string {
 	key := strings.ToLower(strings.TrimPrefix(s, "SCION_"))
 
-	// Handle nested hub keys
+	// Handle nested hub keys (single level: hub.endpoint, hub.grove_id, etc.)
 	if strings.HasPrefix(key, "hub_") {
 		return "hub." + strings.TrimPrefix(key, "hub_")
 	}
-	// Handle nested cli keys
+	// Handle nested cli keys (single level: cli.autohelp, cli.interactive_disabled)
 	if strings.HasPrefix(key, "cli_") {
 		return "cli." + strings.TrimPrefix(key, "cli_")
 	}
-	// Handle nested server keys
+	// Handle nested server keys — deep nesting requires mapping compound field names
 	if strings.HasPrefix(key, "server_") {
-		return "server." + strings.TrimPrefix(key, "server_")
+		rest := strings.TrimPrefix(key, "server_")
+		return "server." + mapServerEnvKey(rest)
 	}
 
 	return key
+}
+
+// knownCompoundFields lists multi-word snake_case field names used in server config.
+// These must be recognized as single fields rather than split into nested keys.
+// IMPORTANT: Sorted longest-first so that "dev_token_file" matches before "dev_token".
+var knownCompoundFields = []string{
+	"authorized_domains",
+	"broker_nickname",
+	"allowed_origins",
+	"allowed_methods",
+	"allowed_headers",
+	"dev_token_file",
+	"gcp_project_id",
+	"gcp_credentials",
+	"client_secret",
+	"write_timeout",
+	"read_timeout",
+	"broker_token",
+	"admin_emails",
+	"hub_endpoint",
+	"broker_name",
+	"public_url",
+	"local_path",
+	"log_format",
+	"broker_id",
+	"client_id",
+	"dev_token",
+	"log_level",
+	"dev_mode",
+	"max_age",
+}
+
+// mapServerEnvKey maps the portion after "server_" to a dotted path, recognizing
+// known multi-word snake_case fields so they are not incorrectly split.
+// For example: "hub_read_timeout" -> "hub.read_timeout"
+//
+//	"broker_broker_id" -> "broker.broker_id"
+//	"oauth_web_google_client_id" -> "oauth.web.google.client_id"
+func mapServerEnvKey(key string) string {
+	return mapEnvKeyRecursive(key)
+}
+
+// mapEnvKeyRecursive splits an env key fragment into dotted segments, recognizing
+// compound field names at each position.
+func mapEnvKeyRecursive(key string) string {
+	if key == "" {
+		return ""
+	}
+
+	// Check if the entire remaining key is a known compound field
+	for _, compound := range knownCompoundFields {
+		if key == compound {
+			return key
+		}
+	}
+
+	// Try to match the longest known compound field at the end,
+	// treating the prefix as nesting segments.
+	// We scan for underscores and try to split at each one.
+	for i := 0; i < len(key); i++ {
+		if key[i] == '_' {
+			prefix := key[:i]
+			rest := key[i+1:]
+
+			// Check if the rest starts with a known compound field
+			matched := false
+			for _, compound := range knownCompoundFields {
+				if strings.HasPrefix(rest, compound) {
+					if len(rest) == len(compound) {
+						// Exact match for the rest
+						return prefix + "." + compound
+					}
+					if rest[len(compound)] == '_' {
+						// Compound field followed by more segments
+						return prefix + "." + compound + "." + mapEnvKeyRecursive(rest[len(compound)+1:])
+					}
+				}
+			}
+
+			if !matched {
+				// The prefix could be a section name (hub, broker, database, auth, oauth, storage, secrets, cors)
+				// Try recursively
+				subResult := mapEnvKeyRecursive(rest)
+				if subResult != rest || isSectionName(prefix) {
+					return prefix + "." + subResult
+				}
+			}
+		}
+	}
+
+	// No compound match found — the key is a simple single-word field
+	return key
+}
+
+// isSectionName checks if a name is a known section in the server config hierarchy.
+func isSectionName(name string) bool {
+	switch name {
+	case "hub", "broker", "database", "auth", "oauth", "storage", "secrets", "cors",
+		"web", "cli", "device", "google", "github":
+		return true
+	}
+	return false
+}
+
+// ConvertV1ServerToGlobalConfig maps a V1ServerConfig (snake_case) to a GlobalConfig (camelCase).
+// This allows server/broker commands to continue operating on GlobalConfig internally
+// while loading from the versioned settings.yaml format.
+func ConvertV1ServerToGlobalConfig(v1 *V1ServerConfig) *GlobalConfig {
+	if v1 == nil {
+		gc := DefaultGlobalConfig()
+		return &gc
+	}
+
+	gc := DefaultGlobalConfig()
+
+	// Top-level fields
+	if v1.LogLevel != "" {
+		gc.LogLevel = v1.LogLevel
+	}
+	if v1.LogFormat != "" {
+		gc.LogFormat = v1.LogFormat
+	}
+
+	// Hub server config
+	if v1.Hub != nil {
+		if v1.Hub.Port != 0 {
+			gc.Hub.Port = v1.Hub.Port
+		}
+		if v1.Hub.Host != "" {
+			gc.Hub.Host = v1.Hub.Host
+		}
+		if v1.Hub.PublicURL != "" {
+			gc.Hub.Endpoint = v1.Hub.PublicURL
+		}
+		if v1.Hub.ReadTimeout != "" {
+			if d, err := time.ParseDuration(v1.Hub.ReadTimeout); err == nil {
+				gc.Hub.ReadTimeout = d
+			}
+		}
+		if v1.Hub.WriteTimeout != "" {
+			if d, err := time.ParseDuration(v1.Hub.WriteTimeout); err == nil {
+				gc.Hub.WriteTimeout = d
+			}
+		}
+		if v1.Hub.CORS != nil {
+			gc.Hub.CORSEnabled = v1.Hub.CORS.Enabled
+			if v1.Hub.CORS.AllowedOrigins != nil {
+				gc.Hub.CORSAllowedOrigins = v1.Hub.CORS.AllowedOrigins
+			}
+			if v1.Hub.CORS.AllowedMethods != nil {
+				gc.Hub.CORSAllowedMethods = v1.Hub.CORS.AllowedMethods
+			}
+			if v1.Hub.CORS.AllowedHeaders != nil {
+				gc.Hub.CORSAllowedHeaders = v1.Hub.CORS.AllowedHeaders
+			}
+			if v1.Hub.CORS.MaxAge != 0 {
+				gc.Hub.CORSMaxAge = v1.Hub.CORS.MaxAge
+			}
+		}
+		if v1.Hub.AdminEmails != nil {
+			gc.Hub.AdminEmails = v1.Hub.AdminEmails
+		}
+	}
+
+	// Broker config
+	if v1.Broker != nil {
+		gc.RuntimeBroker.Enabled = v1.Broker.Enabled
+		if v1.Broker.Port != 0 {
+			gc.RuntimeBroker.Port = v1.Broker.Port
+		}
+		if v1.Broker.Host != "" {
+			gc.RuntimeBroker.Host = v1.Broker.Host
+		}
+		if v1.Broker.ReadTimeout != "" {
+			if d, err := time.ParseDuration(v1.Broker.ReadTimeout); err == nil {
+				gc.RuntimeBroker.ReadTimeout = d
+			}
+		}
+		if v1.Broker.WriteTimeout != "" {
+			if d, err := time.ParseDuration(v1.Broker.WriteTimeout); err == nil {
+				gc.RuntimeBroker.WriteTimeout = d
+			}
+		}
+		if v1.Broker.HubEndpoint != "" {
+			gc.RuntimeBroker.HubEndpoint = v1.Broker.HubEndpoint
+		}
+		if v1.Broker.BrokerID != "" {
+			gc.RuntimeBroker.BrokerID = v1.Broker.BrokerID
+		}
+		// Map BrokerName and BrokerNickname to BrokerName in GlobalConfig
+		if v1.Broker.BrokerName != "" {
+			gc.RuntimeBroker.BrokerName = v1.Broker.BrokerName
+		} else if v1.Broker.BrokerNickname != "" {
+			gc.RuntimeBroker.BrokerName = v1.Broker.BrokerNickname
+		}
+		if v1.Broker.CORS != nil {
+			gc.RuntimeBroker.CORSEnabled = v1.Broker.CORS.Enabled
+			if v1.Broker.CORS.AllowedOrigins != nil {
+				gc.RuntimeBroker.CORSAllowedOrigins = v1.Broker.CORS.AllowedOrigins
+			}
+			if v1.Broker.CORS.AllowedMethods != nil {
+				gc.RuntimeBroker.CORSAllowedMethods = v1.Broker.CORS.AllowedMethods
+			}
+			if v1.Broker.CORS.AllowedHeaders != nil {
+				gc.RuntimeBroker.CORSAllowedHeaders = v1.Broker.CORS.AllowedHeaders
+			}
+			if v1.Broker.CORS.MaxAge != 0 {
+				gc.RuntimeBroker.CORSMaxAge = v1.Broker.CORS.MaxAge
+			}
+		}
+	}
+
+	// Database config
+	if v1.Database != nil {
+		if v1.Database.Driver != "" {
+			gc.Database.Driver = v1.Database.Driver
+		}
+		if v1.Database.URL != "" {
+			gc.Database.URL = v1.Database.URL
+		}
+	}
+
+	// Auth config
+	if v1.Auth != nil {
+		gc.Auth.Enabled = v1.Auth.DevMode
+		gc.Auth.Token = v1.Auth.DevToken
+		gc.Auth.TokenFile = v1.Auth.DevTokenFile
+		if v1.Auth.AuthorizedDomains != nil {
+			gc.Auth.AuthorizedDomains = v1.Auth.AuthorizedDomains
+		}
+	}
+
+	// OAuth config
+	if v1.OAuth != nil {
+		if v1.OAuth.Web != nil {
+			if v1.OAuth.Web.Google != nil {
+				gc.OAuth.Web.Google.ClientID = v1.OAuth.Web.Google.ClientID
+				gc.OAuth.Web.Google.ClientSecret = v1.OAuth.Web.Google.ClientSecret
+			}
+			if v1.OAuth.Web.GitHub != nil {
+				gc.OAuth.Web.GitHub.ClientID = v1.OAuth.Web.GitHub.ClientID
+				gc.OAuth.Web.GitHub.ClientSecret = v1.OAuth.Web.GitHub.ClientSecret
+			}
+		}
+		if v1.OAuth.CLI != nil {
+			if v1.OAuth.CLI.Google != nil {
+				gc.OAuth.CLI.Google.ClientID = v1.OAuth.CLI.Google.ClientID
+				gc.OAuth.CLI.Google.ClientSecret = v1.OAuth.CLI.Google.ClientSecret
+			}
+			if v1.OAuth.CLI.GitHub != nil {
+				gc.OAuth.CLI.GitHub.ClientID = v1.OAuth.CLI.GitHub.ClientID
+				gc.OAuth.CLI.GitHub.ClientSecret = v1.OAuth.CLI.GitHub.ClientSecret
+			}
+		}
+		if v1.OAuth.Device != nil {
+			if v1.OAuth.Device.Google != nil {
+				gc.OAuth.Device.Google.ClientID = v1.OAuth.Device.Google.ClientID
+				gc.OAuth.Device.Google.ClientSecret = v1.OAuth.Device.Google.ClientSecret
+			}
+			if v1.OAuth.Device.GitHub != nil {
+				gc.OAuth.Device.GitHub.ClientID = v1.OAuth.Device.GitHub.ClientID
+				gc.OAuth.Device.GitHub.ClientSecret = v1.OAuth.Device.GitHub.ClientSecret
+			}
+		}
+	}
+
+	// Storage config
+	if v1.Storage != nil {
+		if v1.Storage.Provider != "" {
+			gc.Storage.Provider = v1.Storage.Provider
+		}
+		if v1.Storage.Bucket != "" {
+			gc.Storage.Bucket = v1.Storage.Bucket
+		}
+		if v1.Storage.LocalPath != "" {
+			gc.Storage.LocalPath = v1.Storage.LocalPath
+		}
+	}
+
+	// Secrets config
+	if v1.Secrets != nil {
+		if v1.Secrets.Backend != "" {
+			gc.Secrets.Backend = v1.Secrets.Backend
+		}
+		if v1.Secrets.GCPProjectID != "" {
+			gc.Secrets.GCPProjectID = v1.Secrets.GCPProjectID
+		}
+		if v1.Secrets.GCPCredentials != "" {
+			gc.Secrets.GCPCredentials = v1.Secrets.GCPCredentials
+		}
+	}
+
+	return &gc
+}
+
+// ConvertGlobalToV1ServerConfig maps a GlobalConfig (camelCase) to a V1ServerConfig (snake_case).
+// Used by AdaptLegacySettings and migration tooling.
+func ConvertGlobalToV1ServerConfig(gc *GlobalConfig) *V1ServerConfig {
+	if gc == nil {
+		return &V1ServerConfig{}
+	}
+
+	v1 := &V1ServerConfig{
+		LogLevel:  gc.LogLevel,
+		LogFormat: gc.LogFormat,
+	}
+
+	// Hub server config
+	v1.Hub = &V1ServerHubConfig{
+		Port:         gc.Hub.Port,
+		Host:         gc.Hub.Host,
+		PublicURL:    gc.Hub.Endpoint,
+		ReadTimeout:  gc.Hub.ReadTimeout.String(),
+		WriteTimeout: gc.Hub.WriteTimeout.String(),
+		AdminEmails:  gc.Hub.AdminEmails,
+		CORS: &V1CORSConfig{
+			Enabled:        gc.Hub.CORSEnabled,
+			AllowedOrigins: gc.Hub.CORSAllowedOrigins,
+			AllowedMethods: gc.Hub.CORSAllowedMethods,
+			AllowedHeaders: gc.Hub.CORSAllowedHeaders,
+			MaxAge:         gc.Hub.CORSMaxAge,
+		},
+	}
+
+	// Broker config
+	v1.Broker = &V1BrokerConfig{
+		Enabled:      gc.RuntimeBroker.Enabled,
+		Port:         gc.RuntimeBroker.Port,
+		Host:         gc.RuntimeBroker.Host,
+		ReadTimeout:  gc.RuntimeBroker.ReadTimeout.String(),
+		WriteTimeout: gc.RuntimeBroker.WriteTimeout.String(),
+		HubEndpoint:  gc.RuntimeBroker.HubEndpoint,
+		BrokerID:     gc.RuntimeBroker.BrokerID,
+		BrokerName:   gc.RuntimeBroker.BrokerName,
+		CORS: &V1CORSConfig{
+			Enabled:        gc.RuntimeBroker.CORSEnabled,
+			AllowedOrigins: gc.RuntimeBroker.CORSAllowedOrigins,
+			AllowedMethods: gc.RuntimeBroker.CORSAllowedMethods,
+			AllowedHeaders: gc.RuntimeBroker.CORSAllowedHeaders,
+			MaxAge:         gc.RuntimeBroker.CORSMaxAge,
+		},
+	}
+
+	// Database config
+	v1.Database = &V1DatabaseConfig{
+		Driver: gc.Database.Driver,
+		URL:    gc.Database.URL,
+	}
+
+	// Auth config
+	v1.Auth = &V1AuthConfig{
+		DevMode:           gc.Auth.Enabled,
+		DevToken:          gc.Auth.Token,
+		DevTokenFile:      gc.Auth.TokenFile,
+		AuthorizedDomains: gc.Auth.AuthorizedDomains,
+	}
+
+	// OAuth config
+	v1.OAuth = &V1OAuthConfig{
+		Web: &V1OAuthClientConfig{
+			Google: &V1OAuthProviderConfig{ClientID: gc.OAuth.Web.Google.ClientID, ClientSecret: gc.OAuth.Web.Google.ClientSecret},
+			GitHub: &V1OAuthProviderConfig{ClientID: gc.OAuth.Web.GitHub.ClientID, ClientSecret: gc.OAuth.Web.GitHub.ClientSecret},
+		},
+		CLI: &V1OAuthClientConfig{
+			Google: &V1OAuthProviderConfig{ClientID: gc.OAuth.CLI.Google.ClientID, ClientSecret: gc.OAuth.CLI.Google.ClientSecret},
+			GitHub: &V1OAuthProviderConfig{ClientID: gc.OAuth.CLI.GitHub.ClientID, ClientSecret: gc.OAuth.CLI.GitHub.ClientSecret},
+		},
+		Device: &V1OAuthClientConfig{
+			Google: &V1OAuthProviderConfig{ClientID: gc.OAuth.Device.Google.ClientID, ClientSecret: gc.OAuth.Device.Google.ClientSecret},
+			GitHub: &V1OAuthProviderConfig{ClientID: gc.OAuth.Device.GitHub.ClientID, ClientSecret: gc.OAuth.Device.GitHub.ClientSecret},
+		},
+	}
+
+	// Storage config
+	v1.Storage = &V1StorageConfig{
+		Provider:  gc.Storage.Provider,
+		Bucket:    gc.Storage.Bucket,
+		LocalPath: gc.Storage.LocalPath,
+	}
+
+	// Secrets config
+	v1.Secrets = &V1SecretsConfig{
+		Backend:        gc.Secrets.Backend,
+		GCPProjectID:   gc.Secrets.GCPProjectID,
+		GCPCredentials: gc.Secrets.GCPCredentials,
+	}
+
+	return v1
 }
 
 // AdaptLegacySettings converts a legacy Settings struct to VersionedSettings.
@@ -329,14 +810,25 @@ func AdaptLegacySettings(legacy *Settings) (*VersionedSettings, []string) {
 		if legacy.Hub.APIKey != "" {
 			warnings = append(warnings, "hub.apiKey is deprecated; API key authentication is no longer supported")
 		}
-		if legacy.Hub.BrokerID != "" {
-			warnings = append(warnings, "hub.brokerId is deprecated; moved to server.broker.broker_id")
-		}
-		if legacy.Hub.BrokerNickname != "" {
-			warnings = append(warnings, "hub.brokerNickname is deprecated; moved to server.broker.broker_nickname")
-		}
-		if legacy.Hub.BrokerToken != "" {
-			warnings = append(warnings, "hub.brokerToken is deprecated; moved to server.broker.broker_token")
+		if legacy.Hub.BrokerID != "" || legacy.Hub.BrokerNickname != "" || legacy.Hub.BrokerToken != "" {
+			if vs.Server == nil {
+				vs.Server = &V1ServerConfig{}
+			}
+			if vs.Server.Broker == nil {
+				vs.Server.Broker = &V1BrokerConfig{}
+			}
+			if legacy.Hub.BrokerID != "" {
+				vs.Server.Broker.BrokerID = legacy.Hub.BrokerID
+				warnings = append(warnings, "hub.brokerId is deprecated; moved to server.broker.broker_id")
+			}
+			if legacy.Hub.BrokerNickname != "" {
+				vs.Server.Broker.BrokerNickname = legacy.Hub.BrokerNickname
+				warnings = append(warnings, "hub.brokerNickname is deprecated; moved to server.broker.broker_nickname")
+			}
+			if legacy.Hub.BrokerToken != "" {
+				vs.Server.Broker.BrokerToken = legacy.Hub.BrokerToken
+				warnings = append(warnings, "hub.brokerToken is deprecated; moved to server.broker.broker_token")
+			}
 		}
 		if legacy.Hub.LastSyncedAt != "" {
 			warnings = append(warnings, "hub.lastSyncedAt is deprecated; moved to state.yaml")

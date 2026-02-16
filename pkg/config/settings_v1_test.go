@@ -1213,6 +1213,423 @@ func TestLegacyAndVersionedResolution_SameResult(t *testing.T) {
 	assert.Equal(t, len(legacyHC.Volumes), len(versionedHC.Volumes), "volume count should match")
 }
 
+// --- Phase 4: V1ServerConfig tests ---
+
+func TestV1ServerConfig_YAMLRoundTrip(t *testing.T) {
+	v1 := &V1ServerConfig{
+		Env:       "production",
+		LogLevel:  "debug",
+		LogFormat: "json",
+		Hub: &V1ServerHubConfig{
+			Port:         9810,
+			Host:         "0.0.0.0",
+			PublicURL:    "https://hub.example.com",
+			ReadTimeout:  "30s",
+			WriteTimeout: "60s",
+			AdminEmails:  []string{"admin@example.com"},
+			CORS: &V1CORSConfig{
+				Enabled:        true,
+				AllowedOrigins: []string{"*"},
+				AllowedMethods: []string{"GET", "POST"},
+				AllowedHeaders: []string{"Authorization"},
+				MaxAge:         3600,
+			},
+		},
+		Broker: &V1BrokerConfig{
+			Enabled:        true,
+			Port:           9800,
+			Host:           "0.0.0.0",
+			BrokerID:       "broker-123",
+			BrokerName:     "my-broker",
+			BrokerNickname: "broker-nick",
+			BrokerToken:    "token-xyz",
+			HubEndpoint:    "https://hub.example.com",
+		},
+		Database: &V1DatabaseConfig{
+			Driver: "sqlite",
+			URL:    "/tmp/hub.db",
+		},
+		Auth: &V1AuthConfig{
+			DevMode:           true,
+			DevToken:          "dev-token",
+			AuthorizedDomains: []string{"example.com"},
+		},
+		Storage: &V1StorageConfig{
+			Provider:  "local",
+			LocalPath: "/tmp/storage",
+		},
+		Secrets: &V1SecretsConfig{
+			Backend: "local",
+		},
+	}
+
+	data, err := yaml.Marshal(v1)
+	require.NoError(t, err)
+
+	var roundTripped V1ServerConfig
+	err = yaml.Unmarshal(data, &roundTripped)
+	require.NoError(t, err)
+
+	assert.Equal(t, v1.Env, roundTripped.Env)
+	assert.Equal(t, v1.LogLevel, roundTripped.LogLevel)
+	assert.Equal(t, v1.Hub.Port, roundTripped.Hub.Port)
+	assert.Equal(t, v1.Hub.PublicURL, roundTripped.Hub.PublicURL)
+	assert.Equal(t, v1.Broker.BrokerID, roundTripped.Broker.BrokerID)
+	assert.Equal(t, v1.Broker.BrokerNickname, roundTripped.Broker.BrokerNickname)
+	assert.Equal(t, v1.Database.Driver, roundTripped.Database.Driver)
+	assert.Equal(t, v1.Auth.DevMode, roundTripped.Auth.DevMode)
+	assert.Equal(t, v1.Storage.Provider, roundTripped.Storage.Provider)
+}
+
+func TestConvertV1ServerToGlobalConfig_Basic(t *testing.T) {
+	v1 := &V1ServerConfig{
+		LogLevel:  "debug",
+		LogFormat: "json",
+		Hub: &V1ServerHubConfig{
+			Port:         9810,
+			Host:         "0.0.0.0",
+			PublicURL:    "https://hub.example.com",
+			ReadTimeout:  "30s",
+			WriteTimeout: "60s",
+			AdminEmails:  []string{"admin@example.com"},
+			CORS: &V1CORSConfig{
+				Enabled:        true,
+				AllowedOrigins: []string{"*"},
+				MaxAge:         3600,
+			},
+		},
+		Broker: &V1BrokerConfig{
+			Enabled:        true,
+			Port:           9800,
+			BrokerID:       "broker-123",
+			BrokerName:     "my-broker",
+			BrokerNickname: "nick",
+			HubEndpoint:    "https://hub.example.com",
+		},
+		Database: &V1DatabaseConfig{
+			Driver: "sqlite",
+			URL:    "/tmp/hub.db",
+		},
+		Auth: &V1AuthConfig{
+			DevMode:           true,
+			DevToken:          "dev-token",
+			AuthorizedDomains: []string{"example.com"},
+		},
+		Storage: &V1StorageConfig{
+			Provider:  "local",
+			LocalPath: "/tmp/storage",
+		},
+		Secrets: &V1SecretsConfig{
+			Backend: "local",
+		},
+	}
+
+	gc := ConvertV1ServerToGlobalConfig(v1)
+
+	assert.Equal(t, "debug", gc.LogLevel)
+	assert.Equal(t, "json", gc.LogFormat)
+	assert.Equal(t, 9810, gc.Hub.Port)
+	assert.Equal(t, "https://hub.example.com", gc.Hub.Endpoint)
+	assert.Equal(t, true, gc.Hub.CORSEnabled)
+	assert.Equal(t, 3600, gc.Hub.CORSMaxAge)
+	assert.Equal(t, true, gc.RuntimeBroker.Enabled)
+	assert.Equal(t, 9800, gc.RuntimeBroker.Port)
+	assert.Equal(t, "broker-123", gc.RuntimeBroker.BrokerID)
+	// BrokerName takes priority over BrokerNickname when both are set
+	assert.Equal(t, "my-broker", gc.RuntimeBroker.BrokerName)
+	assert.Equal(t, "https://hub.example.com", gc.RuntimeBroker.HubEndpoint)
+	assert.Equal(t, "sqlite", gc.Database.Driver)
+	assert.Equal(t, "/tmp/hub.db", gc.Database.URL)
+	assert.Equal(t, true, gc.Auth.Enabled)
+	assert.Equal(t, "dev-token", gc.Auth.Token)
+	assert.Equal(t, "local", gc.Storage.Provider)
+	assert.Equal(t, "/tmp/storage", gc.Storage.LocalPath)
+	assert.Equal(t, "local", gc.Secrets.Backend)
+}
+
+func TestConvertV1ServerToGlobalConfig_Nil(t *testing.T) {
+	gc := ConvertV1ServerToGlobalConfig(nil)
+	assert.NotNil(t, gc)
+	// Should be defaults
+	assert.Equal(t, "info", gc.LogLevel)
+}
+
+func TestConvertGlobalToV1ServerConfig_RoundTrip(t *testing.T) {
+	gc := DefaultGlobalConfig()
+	gc.LogLevel = "debug"
+	gc.Hub.Port = 9999
+	gc.RuntimeBroker.Enabled = true
+	gc.RuntimeBroker.BrokerID = "broker-abc"
+	gc.RuntimeBroker.BrokerName = "test-broker"
+	gc.Database.Driver = "sqlite"
+	gc.Auth.Enabled = true
+	gc.Auth.Token = "test-token"
+
+	v1 := ConvertGlobalToV1ServerConfig(&gc)
+
+	assert.Equal(t, "debug", v1.LogLevel)
+	assert.Equal(t, 9999, v1.Hub.Port)
+	assert.Equal(t, true, v1.Broker.Enabled)
+	assert.Equal(t, "broker-abc", v1.Broker.BrokerID)
+	assert.Equal(t, "test-broker", v1.Broker.BrokerName)
+	assert.Equal(t, "sqlite", v1.Database.Driver)
+	assert.Equal(t, true, v1.Auth.DevMode)
+	assert.Equal(t, "test-token", v1.Auth.DevToken)
+
+	// Round-trip back
+	gc2 := ConvertV1ServerToGlobalConfig(v1)
+	assert.Equal(t, gc.LogLevel, gc2.LogLevel)
+	assert.Equal(t, gc.Hub.Port, gc2.Hub.Port)
+	assert.Equal(t, gc.RuntimeBroker.Enabled, gc2.RuntimeBroker.Enabled)
+	assert.Equal(t, gc.RuntimeBroker.BrokerID, gc2.RuntimeBroker.BrokerID)
+	assert.Equal(t, gc.RuntimeBroker.BrokerName, gc2.RuntimeBroker.BrokerName)
+}
+
+func TestConvertGlobalToV1ServerConfig_Nil(t *testing.T) {
+	v1 := ConvertGlobalToV1ServerConfig(nil)
+	assert.NotNil(t, v1)
+}
+
+func TestLoadGlobalConfig_FromSettingsYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+	os.Setenv("HOME", tmpDir)
+
+	globalDir := filepath.Join(tmpDir, ".scion")
+	require.NoError(t, os.MkdirAll(globalDir, 0755))
+
+	// Write settings.yaml with server key
+	settingsContent := `
+schema_version: "1"
+server:
+  log_level: debug
+  log_format: json
+  hub:
+    port: 9999
+    host: "0.0.0.0"
+  broker:
+    enabled: true
+    port: 8888
+    broker_id: "test-broker-id"
+    broker_nickname: "test-broker-nick"
+  database:
+    driver: sqlite
+  auth:
+    dev_mode: true
+    dev_token: "test-dev-token"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "settings.yaml"), []byte(settingsContent), 0644))
+
+	gc, err := LoadGlobalConfig(globalDir)
+	require.NoError(t, err)
+
+	assert.Equal(t, "debug", gc.LogLevel)
+	assert.Equal(t, "json", gc.LogFormat)
+	assert.Equal(t, 9999, gc.Hub.Port)
+	assert.Equal(t, true, gc.RuntimeBroker.Enabled)
+	assert.Equal(t, 8888, gc.RuntimeBroker.Port)
+	assert.Equal(t, "test-broker-id", gc.RuntimeBroker.BrokerID)
+	assert.Equal(t, "test-broker-nick", gc.RuntimeBroker.BrokerName)
+	assert.Equal(t, true, gc.Auth.Enabled)
+	assert.Equal(t, "test-dev-token", gc.Auth.Token)
+}
+
+func TestLoadGlobalConfig_SettingsYAMLPreferredOverServerYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+	os.Setenv("HOME", tmpDir)
+
+	globalDir := filepath.Join(tmpDir, ".scion")
+	require.NoError(t, os.MkdirAll(globalDir, 0755))
+
+	// Write settings.yaml with server key
+	settingsContent := `
+schema_version: "1"
+server:
+  log_level: debug
+  hub:
+    port: 9999
+`
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "settings.yaml"), []byte(settingsContent), 0644))
+
+	// Write server.yaml (legacy) — should NOT be used
+	serverContent := `
+logLevel: warn
+hub:
+  port: 1111
+`
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "server.yaml"), []byte(serverContent), 0644))
+
+	gc, err := LoadGlobalConfig(globalDir)
+	require.NoError(t, err)
+
+	// settings.yaml should win
+	assert.Equal(t, "debug", gc.LogLevel)
+	assert.Equal(t, 9999, gc.Hub.Port)
+}
+
+func TestLoadGlobalConfig_FallsBackToServerYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+	os.Setenv("HOME", tmpDir)
+
+	globalDir := filepath.Join(tmpDir, ".scion")
+	require.NoError(t, os.MkdirAll(globalDir, 0755))
+
+	// Write settings.yaml WITHOUT server key
+	settingsContent := `
+schema_version: "1"
+active_profile: local
+`
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "settings.yaml"), []byte(settingsContent), 0644))
+
+	// Write server.yaml
+	serverContent := `
+logLevel: warn
+hub:
+  port: 7777
+`
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "server.yaml"), []byte(serverContent), 0644))
+
+	gc, err := LoadGlobalConfig(globalDir)
+	require.NoError(t, err)
+
+	// server.yaml should be used
+	assert.Equal(t, "warn", gc.LogLevel)
+	assert.Equal(t, 7777, gc.Hub.Port)
+}
+
+func TestAdaptLegacySettings_PopulatesServerBroker(t *testing.T) {
+	legacy := &Settings{
+		Hub: &HubClientConfig{
+			BrokerID:       "broker-123",
+			BrokerNickname: "my-broker",
+			BrokerToken:    "broker-token",
+		},
+	}
+
+	vs, warnings := AdaptLegacySettings(legacy)
+
+	// Server.Broker should be populated
+	require.NotNil(t, vs.Server)
+	require.NotNil(t, vs.Server.Broker)
+	assert.Equal(t, "broker-123", vs.Server.Broker.BrokerID)
+	assert.Equal(t, "my-broker", vs.Server.Broker.BrokerNickname)
+	assert.Equal(t, "broker-token", vs.Server.Broker.BrokerToken)
+
+	// Should have deprecation warnings
+	assert.NotEmpty(t, warnings)
+	warningTexts := map[string]bool{
+		"hub.brokerId":       false,
+		"hub.brokerNickname": false,
+		"hub.brokerToken":    false,
+	}
+	for _, w := range warnings {
+		for key := range warningTexts {
+			if strings.Contains(w, key) {
+				warningTexts[key] = true
+			}
+		}
+	}
+	for key, found := range warningTexts {
+		assert.True(t, found, "expected warning about %s", key)
+	}
+}
+
+func TestVersionedEnvKeyMapper_DeepServerNesting(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// Basic server keys
+		{"SCION_SERVER_ENV", "server.env"},
+		{"SCION_SERVER_LOG_LEVEL", "server.log_level"},
+		{"SCION_SERVER_LOG_FORMAT", "server.log_format"},
+		// Hub server keys
+		{"SCION_SERVER_HUB_PORT", "server.hub.port"},
+		{"SCION_SERVER_HUB_HOST", "server.hub.host"},
+		{"SCION_SERVER_HUB_PUBLIC_URL", "server.hub.public_url"},
+		{"SCION_SERVER_HUB_READ_TIMEOUT", "server.hub.read_timeout"},
+		{"SCION_SERVER_HUB_WRITE_TIMEOUT", "server.hub.write_timeout"},
+		// Broker keys
+		{"SCION_SERVER_BROKER_PORT", "server.broker.port"},
+		{"SCION_SERVER_BROKER_HOST", "server.broker.host"},
+		{"SCION_SERVER_BROKER_BROKER_ID", "server.broker.broker_id"},
+		{"SCION_SERVER_BROKER_BROKER_NAME", "server.broker.broker_name"},
+		{"SCION_SERVER_BROKER_BROKER_NICKNAME", "server.broker.broker_nickname"},
+		{"SCION_SERVER_BROKER_BROKER_TOKEN", "server.broker.broker_token"},
+		{"SCION_SERVER_BROKER_HUB_ENDPOINT", "server.broker.hub_endpoint"},
+		// Database keys
+		{"SCION_SERVER_DATABASE_DRIVER", "server.database.driver"},
+		{"SCION_SERVER_DATABASE_URL", "server.database.url"},
+		// Auth keys
+		{"SCION_SERVER_AUTH_DEV_MODE", "server.auth.dev_mode"},
+		{"SCION_SERVER_AUTH_DEV_TOKEN", "server.auth.dev_token"},
+		{"SCION_SERVER_AUTH_DEV_TOKEN_FILE", "server.auth.dev_token_file"},
+		{"SCION_SERVER_AUTH_AUTHORIZED_DOMAINS", "server.auth.authorized_domains"},
+		// OAuth keys
+		{"SCION_SERVER_OAUTH_WEB_GOOGLE_CLIENT_ID", "server.oauth.web.google.client_id"},
+		{"SCION_SERVER_OAUTH_WEB_GOOGLE_CLIENT_SECRET", "server.oauth.web.google.client_secret"},
+		{"SCION_SERVER_OAUTH_CLI_GITHUB_CLIENT_ID", "server.oauth.cli.github.client_id"},
+		// Storage keys
+		{"SCION_SERVER_STORAGE_PROVIDER", "server.storage.provider"},
+		{"SCION_SERVER_STORAGE_LOCAL_PATH", "server.storage.local_path"},
+		// Secrets keys
+		{"SCION_SERVER_SECRETS_BACKEND", "server.secrets.backend"},
+		{"SCION_SERVER_SECRETS_GCP_PROJECT_ID", "server.secrets.gcp_project_id"},
+		{"SCION_SERVER_SECRETS_GCP_CREDENTIALS", "server.secrets.gcp_credentials"},
+		// CORS keys (nested under hub or broker)
+		{"SCION_SERVER_HUB_CORS_ENABLED", "server.hub.cors.enabled"},
+		{"SCION_SERVER_HUB_CORS_ALLOWED_ORIGINS", "server.hub.cors.allowed_origins"},
+		{"SCION_SERVER_HUB_CORS_MAX_AGE", "server.hub.cors.max_age"},
+		{"SCION_SERVER_BROKER_CORS_ENABLED", "server.broker.cors.enabled"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := versionedEnvKeyMapper(tt.input)
+			assert.Equal(t, tt.expected, result, "input: %s", tt.input)
+		})
+	}
+}
+
+func TestMergeServerIntoSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write existing settings.yaml
+	existingContent := `
+schema_version: "1"
+active_profile: local
+default_template: gemini
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "settings.yaml"), []byte(existingContent), 0644))
+
+	v1 := &V1ServerConfig{
+		LogLevel: "debug",
+		Hub: &V1ServerHubConfig{
+			Port: 9999,
+		},
+	}
+
+	err := MergeServerIntoSettings(tmpDir, v1)
+	require.NoError(t, err)
+
+	// Re-read and verify
+	data, err := os.ReadFile(filepath.Join(tmpDir, "settings.yaml"))
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "server:")
+	assert.Contains(t, content, "active_profile")
+	assert.Contains(t, content, "schema_version")
+}
+
 // --- Helper ---
 
 func boolPtr(b bool) *bool {

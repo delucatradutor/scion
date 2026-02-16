@@ -15,6 +15,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
+	yamlv3 "gopkg.in/yaml.v3"
 )
 
 // HubServerConfig holds configuration for the Hub API server.
@@ -222,10 +224,77 @@ func DefaultGlobalConfig() GlobalConfig {
 
 // LoadGlobalConfig loads global configuration using Koanf with priority:
 // 1. Embedded defaults
-// 2. Global config file (~/.scion/server.yaml)
-// 3. Local config file (./server.yaml or specified path)
+// 2. Global config: settings.yaml (server key) OR server.yaml (~/.scion/)
+// 3. Local config: settings.yaml (server key) OR server.yaml (./server.yaml or specified path)
 // 4. Environment variables (SCION_SERVER_ prefix)
+//
+// If settings.yaml contains a "server" key, it is preferred over server.yaml.
+// If both exist in the same directory, a deprecation warning is emitted to stderr.
 func LoadGlobalConfig(configPath string) (*GlobalConfig, error) {
+	// Try loading from settings.yaml first (versioned path)
+	if gc, ok := loadGlobalConfigFromSettings(configPath); ok {
+		return gc, nil
+	}
+
+	// Fall back to legacy server.yaml path
+	return loadGlobalConfigLegacy(configPath)
+}
+
+// loadGlobalConfigFromSettings attempts to load server config from settings.yaml files.
+// Returns (config, true) if settings.yaml had a server key, (nil, false) otherwise.
+func loadGlobalConfigFromSettings(configPath string) (*GlobalConfig, bool) {
+	// Check global settings.yaml
+	globalDir, err := GetGlobalDir()
+	if err != nil {
+		return nil, false
+	}
+
+	gc, found := loadServerFromSettingsFile(globalDir)
+	if !found {
+		// Also check local path
+		if configPath != "" {
+			info, err := os.Stat(configPath)
+			if err == nil {
+				dir := configPath
+				if !info.IsDir() {
+					dir = filepath.Dir(configPath)
+				}
+				gc, found = loadServerFromSettingsFile(dir)
+			}
+		}
+	}
+
+	if !found {
+		return nil, false
+	}
+
+	// Emit deprecation warning if server.yaml also exists
+	if hasServerYAML(globalDir) {
+		fmt.Fprintf(os.Stderr, "Warning: Both settings.yaml (server key) and server.yaml exist in %s. Using settings.yaml. server.yaml is deprecated; run 'scion config migrate --server' to consolidate.\n", globalDir)
+	}
+	if configPath != "" {
+		info, err := os.Stat(configPath)
+		if err == nil {
+			dir := configPath
+			if !info.IsDir() {
+				dir = filepath.Dir(configPath)
+			}
+			if dir != globalDir && hasServerYAML(dir) {
+				fmt.Fprintf(os.Stderr, "Warning: Both settings.yaml (server key) and server.yaml exist in %s. Using settings.yaml. server.yaml is deprecated.\n", dir)
+			}
+		}
+	}
+
+	// Apply database URL default if needed
+	if gc.Database.URL == "" && gc.Database.Driver == "sqlite" {
+		gc.Database.URL = filepath.Join(globalDir, "hub.db")
+	}
+
+	return gc, true
+}
+
+// loadGlobalConfigLegacy loads global configuration from server.yaml files using the legacy path.
+func loadGlobalConfigLegacy(configPath string) (*GlobalConfig, error) {
 	k := koanf.New(".")
 
 	// 1. Load embedded defaults
@@ -414,7 +483,69 @@ func envKeyToConfigKey(envKey string) string {
 	return strings.Join(parts, ".")
 }
 
-// loadServerConfigFile loads server config from a directory
+// GetServerConfigPath returns the path to server.yaml (or server.yml) in the given directory,
+// or empty string if neither exists.
+func GetServerConfigPath(dir string) string {
+	yamlPath := filepath.Join(dir, "server.yaml")
+	if _, err := os.Stat(yamlPath); err == nil {
+		return yamlPath
+	}
+	ymlPath := filepath.Join(dir, "server.yml")
+	if _, err := os.Stat(ymlPath); err == nil {
+		return ymlPath
+	}
+	return ""
+}
+
+// MarshalV1ServerConfig marshals a V1ServerConfig to YAML bytes.
+func MarshalV1ServerConfig(v1 *V1ServerConfig) ([]byte, error) {
+	return yamlv3.Marshal(v1)
+}
+
+// MergeServerIntoSettings merges a V1ServerConfig into the settings.yaml file
+// in the given directory under the "server" key.
+func MergeServerIntoSettings(dir string, v1 *V1ServerConfig) error {
+	settingsPath := filepath.Join(dir, "settings.yaml")
+
+	// Load existing settings.yaml if it exists
+	var raw map[string]interface{}
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		if err := yamlv3.Unmarshal(data, &raw); err != nil {
+			return fmt.Errorf("failed to parse existing settings.yaml: %w", err)
+		}
+	}
+	if raw == nil {
+		raw = make(map[string]interface{})
+	}
+
+	// Marshal the V1ServerConfig to get it as a map
+	serverData, err := yamlv3.Marshal(v1)
+	if err != nil {
+		return fmt.Errorf("failed to marshal server config: %w", err)
+	}
+
+	var serverMap interface{}
+	if err := yamlv3.Unmarshal(serverData, &serverMap); err != nil {
+		return fmt.Errorf("failed to unmarshal server config: %w", err)
+	}
+
+	raw["server"] = serverMap
+
+	// Ensure schema_version is set
+	if _, ok := raw["schema_version"]; !ok {
+		raw["schema_version"] = "1"
+	}
+
+	// Write back
+	newData, err := yamlv3.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+
+	return os.WriteFile(settingsPath, newData, 0644)
+}
+
+// loadServerConfigFile loads server config from a directory's server.yaml file.
 func loadServerConfigFile(k *koanf.Koanf, dir string) {
 	yamlPath := filepath.Join(dir, "server.yaml")
 	ymlPath := filepath.Join(dir, "server.yml")
@@ -426,4 +557,52 @@ func loadServerConfigFile(k *koanf.Koanf, dir string) {
 	if _, err := os.Stat(ymlPath); err == nil {
 		_ = k.Load(file.Provider(ymlPath), yaml.Parser())
 	}
+}
+
+// loadServerFromSettingsFile checks if settings.yaml in the given directory
+// contains a "server" key. If found, it loads the server section as a
+// V1ServerConfig and converts it to a GlobalConfig.
+// Returns (config, true) if settings.yaml had a server key, (nil, false) otherwise.
+func loadServerFromSettingsFile(dir string) (*GlobalConfig, bool) {
+	settingsPath := filepath.Join(dir, "settings.yaml")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		return nil, false
+	}
+
+	// Parse the YAML to check if it has a "server" key
+	var raw map[string]interface{}
+	if err := yamlv3.Unmarshal(data, &raw); err != nil {
+		return nil, false
+	}
+
+	serverRaw, ok := raw["server"]
+	if !ok || serverRaw == nil {
+		return nil, false
+	}
+
+	// Re-marshal just the server section, then unmarshal into V1ServerConfig
+	serverData, err := yamlv3.Marshal(serverRaw)
+	if err != nil {
+		return nil, false
+	}
+
+	var v1Server V1ServerConfig
+	if err := yamlv3.Unmarshal(serverData, &v1Server); err != nil {
+		return nil, false
+	}
+
+	gc := ConvertV1ServerToGlobalConfig(&v1Server)
+	return gc, true
+}
+
+// hasServerYAML checks if a directory has a server.yaml or server.yml file.
+func hasServerYAML(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, "server.yaml")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(dir, "server.yml")); err == nil {
+		return true
+	}
+	return false
 }

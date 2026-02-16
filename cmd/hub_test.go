@@ -28,38 +28,37 @@ func TestGetAuthInfo_NoAuth(t *testing.T) {
 	assert.Equal(t, "none", info.Method)
 }
 
-func TestGetAuthInfo_BearerToken(t *testing.T) {
+func TestGetAuthInfo_DeprecatedTokenIgnored(t *testing.T) {
+	// hub.token is deprecated and should no longer be used for auth
 	settings := &config.Settings{
 		Hub: &config.HubClientConfig{
 			Token: "test-token",
 		},
 	}
 	info := getAuthInfo(settings, "https://hub.example.com")
-	assert.Equal(t, "bearer", info.MethodType)
-	assert.Equal(t, "settings", info.Source)
+	// Should NOT return bearer — token is deprecated
+	assert.NotEqual(t, "bearer", info.MethodType)
 }
 
-func TestGetAuthInfo_APIKey(t *testing.T) {
+func TestGetAuthInfo_DeprecatedAPIKeyIgnored(t *testing.T) {
+	// hub.apiKey is deprecated and should no longer be used for auth
 	settings := &config.Settings{
 		Hub: &config.HubClientConfig{
 			APIKey: "test-api-key",
 		},
 	}
 	info := getAuthInfo(settings, "https://hub.example.com")
-	assert.Equal(t, "apikey", info.MethodType)
-	assert.Equal(t, "settings", info.Source)
+	// Should NOT return apikey — apiKey is deprecated
+	assert.NotEqual(t, "apikey", info.MethodType)
 }
 
-func TestGetAuthInfo_BearerPrecedence(t *testing.T) {
-	// Bearer token should take precedence over API key
-	settings := &config.Settings{
-		Hub: &config.HubClientConfig{
-			Token:  "test-token",
-			APIKey: "test-api-key",
-		},
-	}
+func TestGetAuthInfo_EnvTokenTakesPriority(t *testing.T) {
+	// SCION_HUB_TOKEN env var should work for bearer auth
+	settings := &config.Settings{}
+	t.Setenv("SCION_HUB_TOKEN", "env-token")
 	info := getAuthInfo(settings, "https://hub.example.com")
 	assert.Equal(t, "bearer", info.MethodType)
+	assert.Equal(t, "SCION_HUB_TOKEN env", info.Source)
 }
 
 func TestGetAuthInfo_NilHub(t *testing.T) {

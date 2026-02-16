@@ -391,7 +391,7 @@ func checkBrokerAvailability(ctx context.Context, hubCtx *HubContext) (bool, err
 	return false, nil
 }
 
-// UpdateLastSyncedAt updates the lastSyncedAt watermark in grove settings.
+// UpdateLastSyncedAt updates the lastSyncedAt watermark in state.yaml.
 // Uses hubTime if non-zero (preferred), otherwise falls back to local time.
 func UpdateLastSyncedAt(grovePath string, hubTime time.Time, isGlobal bool) {
 	var ts time.Time
@@ -401,8 +401,9 @@ func UpdateLastSyncedAt(grovePath string, hubTime time.Time, isGlobal bool) {
 		ts = time.Now().UTC()
 	}
 	formatted := ts.Format(time.RFC3339Nano)
-	if err := config.UpdateSetting(grovePath, "hub.lastSyncedAt", formatted, isGlobal); err != nil {
-		debugf("Warning: failed to save lastSyncedAt: %v", err)
+	state := &config.GroveState{LastSyncedAt: formatted}
+	if err := config.SaveGroveState(grovePath, state); err != nil {
+		debugf("Warning: failed to save lastSyncedAt to state.yaml: %v", err)
 	}
 }
 
@@ -463,14 +464,29 @@ func CompareAgents(ctx context.Context, hubCtx *HubContext) (*SyncResult, error)
 		}
 	}
 
-	// Parse lastSyncedAt from settings to distinguish remote-created agents from locally-deleted ones.
+	// Parse lastSyncedAt from state.yaml (preferred) or legacy settings (fallback).
 	var lastSyncedAt time.Time
-	if hubCtx.Settings.Hub != nil && hubCtx.Settings.Hub.LastSyncedAt != "" {
-		if parsed, err := time.Parse(time.RFC3339Nano, hubCtx.Settings.Hub.LastSyncedAt); err == nil {
+	var lastSyncedAtStr string
+
+	// Try state.yaml first
+	groveState, err := config.LoadGroveState(hubCtx.GrovePath)
+	if err == nil && groveState.LastSyncedAt != "" {
+		lastSyncedAtStr = groveState.LastSyncedAt
+		debugf("lastSyncedAt from state.yaml: %s", lastSyncedAtStr)
+	}
+
+	// Fall back to legacy settings if state.yaml doesn't have it
+	if lastSyncedAtStr == "" && hubCtx.Settings.Hub != nil && hubCtx.Settings.Hub.LastSyncedAt != "" {
+		lastSyncedAtStr = hubCtx.Settings.Hub.LastSyncedAt
+		debugf("lastSyncedAt from legacy settings (hub.lastSyncedAt): %s", lastSyncedAtStr)
+	}
+
+	if lastSyncedAtStr != "" {
+		if parsed, err := time.Parse(time.RFC3339Nano, lastSyncedAtStr); err == nil {
 			lastSyncedAt = parsed
 			debugf("lastSyncedAt: %s", lastSyncedAt.Format(time.RFC3339))
 		} else {
-			debugf("Warning: failed to parse lastSyncedAt %q: %v", hubCtx.Settings.Hub.LastSyncedAt, err)
+			debugf("Warning: failed to parse lastSyncedAt %q: %v", lastSyncedAtStr, err)
 		}
 	}
 
@@ -844,27 +860,18 @@ func getEndpoint(settings *config.Settings) string {
 }
 
 // createHubClient creates a new Hub client with proper authentication.
+// Note: hub.token and hub.apiKey are deprecated and no longer used for auth.
+// Auth priority: OAuth credentials > auto dev auth.
 func createHubClient(settings *config.Settings, endpoint string) (hubclient.Client, error) {
 	var opts []hubclient.Option
 
 	// Add authentication - check in priority order
 	authConfigured := false
-	if settings.Hub != nil {
-		if settings.Hub.Token != "" {
-			opts = append(opts, hubclient.WithBearerToken(settings.Hub.Token))
-			authConfigured = true
-		} else if settings.Hub.APIKey != "" {
-			opts = append(opts, hubclient.WithAPIKey(settings.Hub.APIKey))
-			authConfigured = true
-		}
-	}
 
 	// Check for OAuth credentials from scion hub auth login
-	if !authConfigured {
-		if accessToken := credentials.GetAccessToken(endpoint); accessToken != "" {
-			opts = append(opts, hubclient.WithBearerToken(accessToken))
-			authConfigured = true
-		}
+	if accessToken := credentials.GetAccessToken(endpoint); accessToken != "" {
+		opts = append(opts, hubclient.WithBearerToken(accessToken))
+		authConfigured = true
 	}
 
 	// Fallback to auto dev auth

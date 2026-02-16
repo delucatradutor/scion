@@ -303,27 +303,12 @@ type authInfo struct {
 	OAuthCreds  *credentials.HubCredentials
 }
 
-// getAuthInfo determines what authentication method will be used for a given endpoint
+// getAuthInfo determines what authentication method will be used for a given endpoint.
+// Note: hub.token and hub.apiKey are deprecated and no longer checked.
 func getAuthInfo(settings *config.Settings, endpoint string) authInfo {
 	info := authInfo{
 		Method:     "none",
 		MethodType: "none",
-	}
-
-	// Check settings-based auth first
-	if settings.Hub != nil {
-		if settings.Hub.Token != "" {
-			info.Method = "Bearer token"
-			info.MethodType = "bearer"
-			info.Source = "settings"
-			return info
-		}
-		if settings.Hub.APIKey != "" {
-			info.Method = "API key"
-			info.MethodType = "apikey"
-			info.Source = "settings"
-			return info
-		}
 	}
 
 	// Check for OAuth credentials from scion hub auth login
@@ -336,6 +321,14 @@ func getAuthInfo(settings *config.Settings, endpoint string) authInfo {
 			info.OAuthCreds = creds
 			return info
 		}
+	}
+
+	// Check for agent-mode token
+	if token := os.Getenv("SCION_HUB_TOKEN"); token != "" {
+		info.Method = "Bearer token"
+		info.MethodType = "bearer"
+		info.Source = "SCION_HUB_TOKEN env"
+		return info
 	}
 
 	// Check for dev auth
@@ -362,28 +355,15 @@ func getHubClient(settings *config.Settings) (hubclient.Client, error) {
 	// Get auth info for logging
 	info := getAuthInfo(settings, endpoint)
 
-	// Add authentication - check in priority order
-	// Note: BrokerToken is intentionally NOT used here. BrokerTokens are for broker-level
-	// operations (registration, heartbeats) and are NOT user authentication tokens.
-	// For user operations (listing groves, agents, etc.), we use user tokens, API keys,
-	// OAuth credentials, or dev auth.
+	// Add authentication - check in priority order.
+	// Note: hub.token and hub.apiKey are deprecated and no longer used for auth.
+	// Auth priority: OAuth credentials > SCION_HUB_TOKEN env > auto dev auth.
 	authConfigured := false
-	if settings.Hub != nil {
-		if settings.Hub.Token != "" {
-			opts = append(opts, hubclient.WithBearerToken(settings.Hub.Token))
-			authConfigured = true
-		} else if settings.Hub.APIKey != "" {
-			opts = append(opts, hubclient.WithAPIKey(settings.Hub.APIKey))
-			authConfigured = true
-		}
-	}
 
 	// Check for OAuth credentials from scion hub auth login
-	if !authConfigured {
-		if accessToken := credentials.GetAccessToken(endpoint); accessToken != "" {
-			opts = append(opts, hubclient.WithBearerToken(accessToken))
-			authConfigured = true
-		}
+	if accessToken := credentials.GetAccessToken(endpoint); accessToken != "" {
+		opts = append(opts, hubclient.WithBearerToken(accessToken))
+		authConfigured = true
 	}
 
 	// Check for agent-mode token (running inside a container)

@@ -696,21 +696,28 @@ WARNING: Legacy settings format detected in /path/to/settings.yaml
 - `MergeScionConfig` updated to propagate the new `HarnessConfig` field.
 - 17 new tests in `settings_v1_test.go` covering resolution methods, hub helpers, and legacy/versioned compatibility.
 
-### Phase 4: Server Config Consolidation
+### Phase 4: Server Config Consolidation ✅ COMPLETE
 
 **Goal:** Merge `server.yaml` / `GlobalConfig` into the unified settings under the `server` key.
 
 **Deliverables:**
-1. Update `LoadGlobalConfig` to check for `server` key in `settings.yaml` first, falling back to `server.yaml` for backward compatibility.
-2. Add `ServerConfig` struct (mirrors current `GlobalConfig`) to `VersionedSettings`. Rename `RuntimeBrokerConfig` → `BrokerConfig`, update koanf tags to `broker` (from `runtimeBroker`/`runtime_broker`).
-3. Map `SCION_SERVER_*` env vars to `server.*` paths in the unified Koanf loader. Support both `SCION_SERVER_RUNTIMEBROKER_*` (legacy) and `SCION_SERVER_BROKER_*` (new) during transition.
-4. When both `server.yaml` and `settings.yaml.server` exist, emit a warning and prefer `settings.yaml`.
-5. Add `scion config migrate --server` to merge `server.yaml` into `settings.yaml`.
-6. Update `scion server` and `scion broker` commands to read from the unified config.
-7. Document that `server.yaml` is deprecated in favor of `settings.yaml` `server` section.
-8. Switch all `GlobalConfig` koanf tags to snake_case. This fixes CORS env var mappings and aligns with the versioned settings convention.
-9. Implement `state.yaml` read/write logic for grove-level runtime state. Migrate `hub.last_synced_at` from `settings.yaml` to `state.yaml` during the migration step.
-10. Remove `hub.token` and `hub.api_key` from settings loading. Update hub client auth to read dev token from `server.auth.dev_token` / `SCION_DEV_TOKEN` / `~/.scion/dev-token` (already partially implemented). In production, OAuth handles auth.
+1. ✅ Update `LoadGlobalConfig` to check for `server` key in `settings.yaml` first, falling back to `server.yaml` for backward compatibility.
+2. ✅ Add `V1ServerConfig` struct hierarchy (mirrors `GlobalConfig`) to `VersionedSettings` with full sub-structs: `V1ServerHubConfig`, `V1BrokerConfig`, `V1DatabaseConfig`, `V1AuthConfig`, `V1OAuthConfig`, `V1OAuthClientConfig`, `V1OAuthProviderConfig`, `V1StorageConfig`, `V1SecretsConfig`, `V1CORSConfig`. All use snake_case koanf tags.
+3. ✅ Map `SCION_SERVER_*` env vars to `server.*` paths in the unified Koanf loader via `mapServerEnvKey` which recognizes known compound field names (e.g., `broker_id`, `read_timeout`, `dev_token_file`).
+4. ✅ When both `server.yaml` and `settings.yaml.server` exist, emit a deprecation warning to stderr and prefer `settings.yaml`.
+5. ✅ Add `scion config migrate --server` to merge `server.yaml` into `settings.yaml`. Supports `--dry-run` for preview.
+6. ✅ Update `cmd/server.go` broker identity resolution to try `V1ServerConfig.Broker` first, then fall back to legacy `settings.Hub.BrokerID` / `settings.Hub.BrokerNickname`.
+7. ✅ `server.yaml` is deprecated in favor of `settings.yaml` `server` section.
+8. ✅ Legacy `GlobalConfig` koanf tags remain unchanged for backward compat with existing `server.yaml` files. The versioned V1ServerConfig (snake_case) handles env vars correctly when loading from `settings.yaml`.
+9. ✅ Implement `state.yaml` read/write logic for grove-level runtime state (`pkg/config/state.go`). `hubsync.UpdateLastSyncedAt` now writes to `state.yaml`. `CompareAgents` reads from `state.yaml` with fallback to legacy `settings.Hub.LastSyncedAt`.
+10. ✅ Remove `hub.token` and `hub.apiKey` from hub client auth in both `cmd/hub.go` (`getHubClient`, `getAuthInfo`) and `pkg/hubsync/sync.go` (`createHubClient`). Auth priority is now: OAuth credentials > SCION_HUB_TOKEN env var > auto dev auth.
+
+**Implementation notes:**
+- `ConvertV1ServerToGlobalConfig` and `ConvertGlobalToV1ServerConfig` provide bidirectional conversion between the versioned and legacy server config formats.
+- `AdaptLegacySettings` now populates `V1ServerConfig.Broker` from legacy `hub.BrokerID`/`hub.BrokerNickname`/`hub.BrokerToken` fields.
+- `knownCompoundFields` list sorted longest-first to prevent prefix matching issues (e.g., `dev_token_file` before `dev_token`).
+- `loadServerFromSettingsFile` helper reads the `server` key from `settings.yaml`, unmarshals into `V1ServerConfig`, and converts to `GlobalConfig`.
+- New test files: `pkg/config/state_test.go`. New tests added to `pkg/config/settings_v1_test.go` and `cmd/hub_test.go`.
 
 ### Phase 5: New Feature Gates & Env Var Standardization
 

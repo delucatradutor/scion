@@ -541,22 +541,20 @@ func TestUpdateLastSyncedAt_UsesHubTime(t *testing.T) {
 
 	UpdateLastSyncedAt(tmpDir, hubTime, false)
 
-	// Read back the stored value
-	settings, err := config.LoadSettings(tmpDir)
+	// Read back from state.yaml
+	state, err := config.LoadGroveState(tmpDir)
 	if err != nil {
-		t.Fatalf("Failed to load settings: %v", err)
+		t.Fatalf("Failed to load grove state: %v", err)
 	}
 
-	if settings.Hub == nil || settings.Hub.LastSyncedAt == "" {
-		t.Fatal("Expected hub.lastSyncedAt to be set")
+	if state.LastSyncedAt == "" {
+		t.Fatal("Expected last_synced_at to be set in state.yaml")
 	}
-
-	stored := settings.Hub.LastSyncedAt
 
 	// Verify the stored value matches the hub time, not the local time
-	parsed, err := time.Parse(time.RFC3339Nano, stored)
+	parsed, err := time.Parse(time.RFC3339Nano, state.LastSyncedAt)
 	if err != nil {
-		t.Fatalf("Failed to parse stored timestamp %q: %v", stored, err)
+		t.Fatalf("Failed to parse stored timestamp %q: %v", state.LastSyncedAt, err)
 	}
 
 	if !parsed.Equal(hubTime) {
@@ -575,16 +573,16 @@ func TestUpdateLastSyncedAt_FallbackToLocalTime(t *testing.T) {
 	UpdateLastSyncedAt(tmpDir, time.Time{}, false) // zero time = fallback
 	after := time.Now().UTC()
 
-	settings, err := config.LoadSettings(tmpDir)
+	state, err := config.LoadGroveState(tmpDir)
 	if err != nil {
-		t.Fatalf("Failed to load settings: %v", err)
+		t.Fatalf("Failed to load grove state: %v", err)
 	}
 
-	if settings.Hub == nil || settings.Hub.LastSyncedAt == "" {
-		t.Fatal("Expected hub.lastSyncedAt to be set")
+	if state.LastSyncedAt == "" {
+		t.Fatal("Expected last_synced_at to be set in state.yaml")
 	}
 
-	parsed, err := time.Parse(time.RFC3339Nano, settings.Hub.LastSyncedAt)
+	parsed, err := time.Parse(time.RFC3339Nano, state.LastSyncedAt)
 	if err != nil {
 		t.Fatalf("Failed to parse stored timestamp: %v", err)
 	}
@@ -605,12 +603,12 @@ func TestUpdateLastSyncedAt_NanoPrecision(t *testing.T) {
 	hubTime := time.Date(2025, 6, 15, 10, 30, 45, 123456789, time.UTC)
 	UpdateLastSyncedAt(tmpDir, hubTime, false)
 
-	settings, err := config.LoadSettings(tmpDir)
+	state, err := config.LoadGroveState(tmpDir)
 	if err != nil {
-		t.Fatalf("Failed to load settings: %v", err)
+		t.Fatalf("Failed to load grove state: %v", err)
 	}
 
-	stored := settings.Hub.LastSyncedAt
+	stored := state.LastSyncedAt
 
 	// Verify the stored value uses nanosecond precision (contains '.' for fractional seconds)
 	if !strings.Contains(stored, ".") {
