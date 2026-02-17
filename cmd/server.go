@@ -426,6 +426,11 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to initialize dev auth: %w", err)
 		}
 
+		// Set SCION_DEV_TOKEN in the server's own environment so that
+		// co-located broker components using WithAutoDevAuth() will
+		// automatically pick up the token for hub client authentication.
+		os.Setenv("SCION_DEV_TOKEN", devAuthToken)
+
 		log.Println("WARNING: Development authentication enabled - not for production use")
 		log.Printf("Dev token: %s", devAuthToken)
 		log.Printf("To authenticate CLI commands, run:")
