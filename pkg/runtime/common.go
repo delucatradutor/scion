@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/util"
@@ -288,11 +289,15 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 
 func runSimpleCommand(ctx context.Context, command string, args ...string) (string, error) {
 	util.Debugf("%s %s", command, strings.Join(args, " "))
+	start := time.Now()
 	cmd := exec.CommandContext(ctx, command, args...)
 	out, err := cmd.CombinedOutput()
+	elapsed := time.Since(start)
 	if err != nil {
+		util.Debugf("%s %s failed in %v", command, strings.Join(args, " "), elapsed)
 		return string(out), fmt.Errorf("%s %s failed: %w", command, strings.Join(args, " "), err)
 	}
+	util.Debugf("%s %s completed in %v", command, strings.Join(args, " "), elapsed)
 	return strings.TrimSpace(string(out)), nil
 }
 
