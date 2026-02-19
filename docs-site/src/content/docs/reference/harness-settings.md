@@ -13,8 +13,13 @@ Each agent has a dedicated "Home" directory that is mounted into the container. 
 - **Claude**: `/home/claude/.claude.json` (or similar)
 - **Opencode**: `/home/opencode/opencode.json`
 
-## Seeding from Templates
-When an agent is created, Scion copies the contents of the template's `home/` directory into the new agent's home directory. This allows you to pre-configure tools, tools allowlists, and default prompts at the template level.
+## Seeding from Harness-Configs & Templates
+When an agent is created, Scion composes its home directory by layering files from multiple sources:
+1.  **Harness-Config**: Base settings for the specific LLM tool (from `~/.scion/harness-configs/<name>/home/`).
+2.  **Template**: Role-specific prompts and configuration (from `.scion/templates/<name>/home/`).
+3.  **Common Files**: Shared dotfiles like `.tmux.conf` and `.zshrc`.
+
+This multi-layered approach allows you to define a "base" Gemini configuration once, and then overlay different "roles" (like Code Reviewer or Security Auditor) on top of it.
 
 ## Key Concepts
 - **Tools**: Allowlists of local or remote functions the LLM is permitted to call.

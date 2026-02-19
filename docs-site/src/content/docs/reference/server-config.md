@@ -79,6 +79,7 @@ Controls the Runtime Broker service.
 | `broker_nickname` | string | | Short display name. |
 | `hub_endpoint` | string | | The Hub URL this broker connects to. |
 | `broker_token` | string | | Authentication token for the Hub. |
+| `auto_provide` | bool | `false` | Automatically add as provider for new groves. |
 
 ### Database (`server.database`)
 

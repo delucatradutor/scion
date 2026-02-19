@@ -171,7 +171,6 @@
         "host": { "type": "string" },
         "context": { "type": "string" },
         "namespace": { "type": "string" },
-        "tmux": { "type": "boolean" },
         "env": {
           "type": "object",
           "additionalProperties": { "type": "string" }
@@ -237,7 +236,6 @@
           "type": "string",
           "description": "Default harness config name for agents under this profile."
         },
-        "tmux": { "type": "boolean" },
         "env": {
           "type": "object",
           "additionalProperties": { "type": "string" }
@@ -349,6 +347,11 @@
           "type": "string",
           "description": "Unique broker identifier (UUID). Auto-generated if empty.",
           "x-env-var": "SCION_SERVER_BROKER_BROKERID"
+        },
+        "auto_provide": {
+          "type": "boolean",
+          "description": "Automatically add as provider for new groves.",
+          "x-env-var": "SCION_SERVER_BROKER_AUTOPROVIDE"
         },
         "broker_name": {
           "type": "string",

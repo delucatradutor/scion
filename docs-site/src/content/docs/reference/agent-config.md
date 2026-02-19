@@ -21,12 +21,16 @@ Previous versions of Scion used `scion-agent.json`. The new versioned settings s
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `schema_version` | string | Should be `"1"`. |
-| `harness_config` | string | The name of the harness config to use (e.g., `gemini`, `gemini-secure`). References `harness_configs` in `settings.yaml`. |
+| `default_harness_config` | string | The name of the default harness config to use (e.g., `gemini`, `claude`). |
 | `image` | string | Override the container image defined in the harness config. |
 | `env` | map | Environment variables to inject into the container. |
 | `volumes` | list | Additional volume mounts. |
 | `detached` | bool | Run in background (default `true`). |
 | `command_args` | list | Additional arguments passed to the harness entrypoint. |
+
+:::caution[Harness Field Deprecated]
+The `harness` field is no longer supported in `scion-agent.yaml`. Templates must be harness-agnostic. Use `default_harness_config` to specify a preferred harness, which can be overridden by users at runtime.
+:::
 
 ### Limits & Resources
 

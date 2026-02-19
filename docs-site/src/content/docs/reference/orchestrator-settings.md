@@ -148,7 +148,6 @@ profiles:
     runtime: docker
     default_template: gemini
     default_harness_config: gemini
-    tmux: true
     harness_overrides:
       gemini:
         image: "gemini:dev"
