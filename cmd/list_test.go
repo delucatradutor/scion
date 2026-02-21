@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/hubclient"
 )
 
 func TestFormatLastSeen(t *testing.T) {
@@ -297,5 +298,50 @@ func TestDisplayAgentsEmptyAll(t *testing.T) {
 
 	if !strings.Contains(output, "No active agents found across any groves.") {
 		t.Errorf("expected all-groves empty message, got: %s", output)
+	}
+}
+
+func TestHubAgentToAgentInfo_HarnessConfigFromTopLevel(t *testing.T) {
+	// When the Hub returns harnessConfig at the top level, use it directly
+	a := hubclient.Agent{
+		ID:            "agent-1",
+		Name:          "test-agent",
+		HarnessConfig: "gemini",
+	}
+	info := hubAgentToAgentInfo(a)
+	if info.HarnessConfig != "gemini" {
+		t.Errorf("HarnessConfig = %q, want %q", info.HarnessConfig, "gemini")
+	}
+}
+
+func TestHubAgentToAgentInfo_HarnessConfigFallbackToAppliedConfig(t *testing.T) {
+	// When the Hub does NOT return harnessConfig at the top level (older Hub),
+	// fall back to AppliedConfig.Harness
+	a := hubclient.Agent{
+		ID:   "agent-2",
+		Name: "test-agent-2",
+		AppliedConfig: &hubclient.AgentConfig{
+			Harness: "claude",
+		},
+	}
+	info := hubAgentToAgentInfo(a)
+	if info.HarnessConfig != "claude" {
+		t.Errorf("HarnessConfig = %q, want %q (should fall back to AppliedConfig.Harness)", info.HarnessConfig, "claude")
+	}
+}
+
+func TestHubAgentToAgentInfo_HarnessConfigTopLevelTakesPrecedence(t *testing.T) {
+	// When both are set, top-level harnessConfig takes precedence
+	a := hubclient.Agent{
+		ID:            "agent-3",
+		Name:          "test-agent-3",
+		HarnessConfig: "gemini",
+		AppliedConfig: &hubclient.AgentConfig{
+			Harness: "claude",
+		},
+	}
+	info := hubAgentToAgentInfo(a)
+	if info.HarnessConfig != "gemini" {
+		t.Errorf("HarnessConfig = %q, want %q (top-level should take precedence)", info.HarnessConfig, "gemini")
 	}
 }

@@ -1557,3 +1557,93 @@ func TestCreateAgent_ProfileStoredWithConfigOverride(t *testing.T) {
 	require.NotNil(t, persisted.AppliedConfig)
 	assert.Equal(t, "other-profile", persisted.AppliedConfig.Profile)
 }
+
+// TestListAgents_HarnessConfigEnriched verifies that the harness type from
+// AppliedConfig.Harness is surfaced as a top-level harnessConfig field in
+// list responses so that clients can display it without parsing appliedConfig.
+func TestListAgents_HarnessConfigEnriched(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID:   "grove-harness-enrich",
+		Name: "Harness Enrichment Grove",
+		Slug: "harness-enrich-grove",
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	agent := &store.Agent{
+		ID:      "agent-harness-enrich",
+		Slug:    "agent-harness-enrich",
+		Name:    "Harness Agent",
+		GroveID: grove.ID,
+		Status:  store.AgentStatusRunning,
+		AppliedConfig: &store.AgentAppliedConfig{
+			Harness: "gemini",
+		},
+	}
+	require.NoError(t, s.CreateAgent(ctx, agent))
+
+	// List via global endpoint
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/agents?groveId="+grove.ID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp ListAgentsResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Agents, 1)
+	assert.Equal(t, "gemini", resp.Agents[0].HarnessConfig,
+		"harnessConfig should be enriched from appliedConfig.harness")
+
+	// Also verify the raw JSON has harnessConfig at the top level
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var agents []map[string]interface{}
+	require.NoError(t, json.Unmarshal(raw["agents"], &agents))
+	require.Len(t, agents, 1)
+	assert.Equal(t, "gemini", agents[0]["harnessConfig"],
+		"JSON response should include harnessConfig at top level")
+
+	// List via grove-scoped endpoint
+	rec2 := doRequest(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/groves/%s/agents", grove.ID), nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 ListAgentsResponse
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.Len(t, resp2.Agents, 1)
+	assert.Equal(t, "gemini", resp2.Agents[0].HarnessConfig,
+		"grove-scoped harnessConfig should also be enriched")
+}
+
+// TestGetAgent_HarnessConfigEnriched verifies that a single agent GET also
+// includes the enriched harnessConfig field.
+func TestGetAgent_HarnessConfigEnriched(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID:   "grove-harness-get",
+		Name: "Harness Get Grove",
+		Slug: "harness-get-grove",
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	agent := &store.Agent{
+		ID:      "agent-harness-get",
+		Slug:    "agent-harness-get",
+		Name:    "Harness Get Agent",
+		GroveID: grove.ID,
+		Status:  store.AgentStatusRunning,
+		AppliedConfig: &store.AgentAppliedConfig{
+			Harness: "claude",
+		},
+	}
+	require.NoError(t, s.CreateAgent(ctx, agent))
+
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/agents/"+agent.ID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got store.Agent
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, "claude", got.HarnessConfig,
+		"single agent GET should include enriched harnessConfig")
+}

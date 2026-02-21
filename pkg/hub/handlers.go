@@ -749,6 +749,10 @@ func (s *Server) enrichAgents(ctx context.Context, agents []store.Agent) {
 
 	// Enrich agents
 	for i := range agents {
+		// Populate harness config from applied config
+		if agents[i].HarnessConfig == "" && agents[i].AppliedConfig != nil && agents[i].AppliedConfig.Harness != "" {
+			agents[i].HarnessConfig = agents[i].AppliedConfig.Harness
+		}
 		if name, ok := groveNames[agents[i].GroveID]; ok {
 			agents[i].Grove = name
 		}
@@ -772,6 +776,11 @@ func (s *Server) enrichAgents(ctx context.Context, agents []store.Agent) {
 func (s *Server) enrichAgent(ctx context.Context, agent *store.Agent, grove *store.Grove, broker *store.RuntimeBroker) {
 	if agent == nil {
 		return
+	}
+
+	// Populate harness config from applied config
+	if agent.HarnessConfig == "" && agent.AppliedConfig != nil && agent.AppliedConfig.Harness != "" {
+		agent.HarnessConfig = agent.AppliedConfig.Harness
 	}
 
 	// Populate grove name
