@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/ptone/scion-agent/pkg/wsprotocol"
@@ -113,10 +115,13 @@ func (c *ControlChannelBrokerClient) RestartAgent(ctx context.Context, brokerID,
 }
 
 // DeleteAgent deletes an agent via control channel.
-func (c *ControlChannelBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch bool) error {
+func (c *ControlChannelBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch, softDelete bool, deletedAt time.Time) error {
 	_ = brokerEndpoint
 	path := fmt.Sprintf("/api/v1/agents/%s", agentID)
 	query := fmt.Sprintf("deleteFiles=%t&removeBranch=%t", deleteFiles, removeBranch)
+	if softDelete {
+		query += fmt.Sprintf("&softDelete=true&deletedAt=%s", url.QueryEscape(deletedAt.Format(time.RFC3339)))
+	}
 	resp, err := c.doRequest(ctx, brokerID, "DELETE", path, query, nil)
 	if err != nil {
 		return err
@@ -320,11 +325,11 @@ func (c *HybridBrokerClient) RestartAgent(ctx context.Context, brokerID, brokerE
 }
 
 // DeleteAgent deletes an agent, preferring control channel.
-func (c *HybridBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch bool) error {
+func (c *HybridBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch, softDelete bool, deletedAt time.Time) error {
 	if c.useControlChannel(brokerID) {
-		return c.controlChannel.DeleteAgent(ctx, brokerID, brokerEndpoint, agentID, deleteFiles, removeBranch)
+		return c.controlChannel.DeleteAgent(ctx, brokerID, brokerEndpoint, agentID, deleteFiles, removeBranch, softDelete, deletedAt)
 	}
-	return c.httpClient.DeleteAgent(ctx, brokerID, brokerEndpoint, agentID, deleteFiles, removeBranch)
+	return c.httpClient.DeleteAgent(ctx, brokerID, brokerEndpoint, agentID, deleteFiles, removeBranch, softDelete, deletedAt)
 }
 
 // MessageAgent sends a message to an agent, preferring control channel.

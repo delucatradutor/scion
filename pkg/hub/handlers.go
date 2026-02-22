@@ -350,7 +350,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		// Agent exists in a potentially stale state â delete and recreate
 		dispatcher := s.GetDispatcher()
 		if dispatcher != nil && existingAgent.RuntimeBrokerID != "" {
-			_ = dispatcher.DispatchAgentDelete(ctx, existingAgent, false, false)
+			_ = dispatcher.DispatchAgentDelete(ctx, existingAgent, false, false, false, time.Time{})
 		}
 		if err := s.store.DeleteAgent(ctx, existingAgent.ID); err != nil {
 			writeErrorFromErr(w, err, "")
@@ -366,7 +366,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		existingAgent.Status == store.AgentStatusProvisioning {
 		dispatcher := s.GetDispatcher()
 		if dispatcher != nil && existingAgent.RuntimeBrokerID != "" {
-			_ = dispatcher.DispatchAgentDelete(ctx, existingAgent, false, false)
+			_ = dispatcher.DispatchAgentDelete(ctx, existingAgent, false, false, false, time.Time{})
 		}
 		if err := s.store.DeleteAgent(ctx, existingAgent.ID); err != nil {
 			writeErrorFromErr(w, err, "")
@@ -1045,17 +1045,38 @@ func (s *Server) checkBrokerAvailability(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, id string) {
+	agent, err := s.store.GetAgent(r.Context(), id)
+	if err != nil {
+		writeErrorFromErr(w, err, "")
+		return
+	}
+	s.performAgentDelete(w, r, agent)
+}
+
+// performAgentDelete handles both soft and hard deletion of an agent.
+// Soft-delete: marks agent as deleted with a timestamp and retains the record.
+// Hard-delete: permanently removes the agent record from the store.
+func (s *Server) performAgentDelete(w http.ResponseWriter, r *http.Request, agent *store.Agent) {
 	ctx := r.Context()
 	query := r.URL.Query()
 
 	deleteFiles := query.Get("deleteFiles") == "true"
 	removeBranch := query.Get("removeBranch") == "true"
+	force := query.Get("force") == "true"
 
-	// Get the agent to dispatch deletion to runtime broker
-	agent, err := s.store.GetAgent(ctx, id)
-	if err != nil {
-		writeErrorFromErr(w, err, "")
+	// Idempotency: already-deleted agent returns 204
+	if agent.Status == store.AgentStatusDeleted {
+		w.WriteHeader(http.StatusNoContent)
 		return
+	}
+
+	// Determine soft vs hard delete
+	retention := s.config.SoftDeleteRetention
+	softDelete := retention > 0 && !force
+
+	// If SoftDeleteRetainFiles is configured, override deleteFiles for soft-deletes
+	if softDelete && s.config.SoftDeleteRetainFiles {
+		deleteFiles = false
 	}
 
 	// Verify broker is reachable before deleting to avoid orphaned containers
@@ -1063,21 +1084,36 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 
+	now := time.Now()
+
 	// If a dispatcher is available, dispatch the deletion to the runtime broker
 	if dispatcher := s.GetDispatcher(); dispatcher != nil && agent.RuntimeBrokerID != "" {
-		if err := dispatcher.DispatchAgentDelete(ctx, agent, deleteFiles, removeBranch); err != nil {
-			// Log but continue - the agent record should still be deleted from hub
+		if err := dispatcher.DispatchAgentDelete(ctx, agent, deleteFiles, removeBranch, softDelete, now); err != nil {
+			// Log but continue - the agent record should still be deleted/updated from hub
 			// The runtime broker deletion is best-effort
 			// (agent may already be stopped/deleted on the broker)
+			slog.Warn("Failed to dispatch agent delete to broker", "agentID", agent.ID, "error", err)
 		}
 	}
 
-	if err := s.store.DeleteAgent(ctx, id); err != nil {
-		writeErrorFromErr(w, err, "")
-		return
+	if softDelete {
+		// Soft delete: mark agent as deleted with timestamp
+		agent.Status = store.AgentStatusDeleted
+		agent.DeletedAt = now
+		agent.Updated = now
+		if err := s.store.UpdateAgent(ctx, agent); err != nil {
+			writeErrorFromErr(w, err, "")
+			return
+		}
+		s.events.PublishAgentDeleted(ctx, agent.ID, agent.GroveID)
+	} else {
+		// Hard delete: permanently remove the agent record
+		if err := s.store.DeleteAgent(ctx, agent.ID); err != nil {
+			writeErrorFromErr(w, err, "")
+			return
+		}
+		s.events.PublishAgentDeleted(ctx, agent.ID, agent.GroveID)
 	}
-
-	s.events.PublishAgentDeleted(ctx, agent.ID, agent.GroveID)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -2001,7 +2037,7 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 			existingAgent.Status == store.AgentStatusProvisioning {
 			dispatcher := s.GetDispatcher()
 			if dispatcher != nil && existingAgent.RuntimeBrokerID != "" {
-				_ = dispatcher.DispatchAgentDelete(ctx, existingAgent, false, false)
+				_ = dispatcher.DispatchAgentDelete(ctx, existingAgent, false, false, false, time.Time{})
 			}
 			if err := s.store.DeleteAgent(ctx, existingAgent.ID); err != nil {
 				writeErrorFromErr(w, err, "")
@@ -2307,10 +2343,6 @@ func (s *Server) updateGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 // deleteGroveAgent deletes an agent within a specific grove
 func (s *Server) deleteGroveAgent(w http.ResponseWriter, r *http.Request, groveID, agentID string) {
 	ctx := r.Context()
-	query := r.URL.Query()
-
-	deleteFiles := query.Get("deleteFiles") == "true"
-	removeBranch := query.Get("removeBranch") == "true"
 
 	// Try to get by slug first to verify grove membership
 	agent, err := s.store.GetAgentBySlug(ctx, groveID, agentID)
@@ -2332,26 +2364,7 @@ func (s *Server) deleteGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 		}
 	}
 
-	// Verify broker is reachable before deleting to avoid orphaned containers
-	if !s.checkBrokerAvailability(w, r, agent) {
-		return
-	}
-
-	// If a dispatcher is available, dispatch the deletion to the runtime broker
-	if dispatcher := s.GetDispatcher(); dispatcher != nil && agent.RuntimeBrokerID != "" {
-		if err := dispatcher.DispatchAgentDelete(ctx, agent, deleteFiles, removeBranch); err != nil {
-			// Log but continue - the agent record should still be deleted from hub
-		}
-	}
-
-	if err := s.store.DeleteAgent(ctx, agent.ID); err != nil {
-		writeErrorFromErr(w, err, "")
-		return
-	}
-
-	s.events.PublishAgentDeleted(ctx, agent.ID, agent.GroveID)
-
-	w.WriteHeader(http.StatusNoContent)
+	s.performAgentDelete(w, r, agent)
 }
 
 // handleGroveAgentAction handles actions on agents within a grove

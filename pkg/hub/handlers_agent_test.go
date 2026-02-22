@@ -637,7 +637,7 @@ func (d *createAgentDispatcher) DispatchAgentStop(_ context.Context, _ *store.Ag
 func (d *createAgentDispatcher) DispatchAgentRestart(_ context.Context, _ *store.Agent) error {
 	return nil
 }
-func (d *createAgentDispatcher) DispatchAgentDelete(_ context.Context, _ *store.Agent, _, _ bool) error {
+func (d *createAgentDispatcher) DispatchAgentDelete(_ context.Context, _ *store.Agent, _, _, _ bool, _ time.Time) error {
 	d.deleteCalled = true
 	return nil
 }

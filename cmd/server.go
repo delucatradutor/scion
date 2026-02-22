@@ -1231,7 +1231,7 @@ func (d *agentDispatcherAdapter) DispatchAgentRestart(ctx context.Context, hubAg
 
 // DispatchAgentDelete implements hub.AgentDispatcher.
 // It removes an agent from the runtime broker.
-func (d *agentDispatcherAdapter) DispatchAgentDelete(ctx context.Context, hubAgent *store.Agent, deleteFiles, removeBranch bool) error {
+func (d *agentDispatcherAdapter) DispatchAgentDelete(ctx context.Context, hubAgent *store.Agent, deleteFiles, removeBranch, _ bool, _ time.Time) error {
 	// Look up the local path for this grove on this runtime broker
 	var grovePath string
 	if hubAgent.GroveID != "" && d.brokerID != "" {

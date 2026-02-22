@@ -213,10 +213,13 @@ func (c *HTTPRuntimeBrokerClient) RestartAgent(ctx context.Context, brokerID, br
 
 // DeleteAgent deletes an agent from a remote runtime broker.
 // Note: brokerID is unused in this unauthenticated client.
-func (c *HTTPRuntimeBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch bool) error {
+func (c *HTTPRuntimeBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch, softDelete bool, deletedAt time.Time) error {
 	_ = brokerID // Unused in unauthenticated client
 	endpoint := fmt.Sprintf("%s/api/v1/agents/%s?deleteFiles=%t&removeBranch=%t",
 		strings.TrimSuffix(brokerEndpoint, "/"), url.PathEscape(agentID), deleteFiles, removeBranch)
+	if softDelete {
+		endpoint += fmt.Sprintf("&softDelete=true&deletedAt=%s", url.QueryEscape(deletedAt.Format(time.RFC3339)))
+	}
 
 	if c.debug {
 		slog.Debug("Dispatcher request", "method", "DELETE", "endpoint", endpoint)
@@ -921,7 +924,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentRestart(ctx context.Context, agent *s
 }
 
 // DispatchAgentDelete deletes an agent from the runtime broker.
-func (d *HTTPAgentDispatcher) DispatchAgentDelete(ctx context.Context, agent *store.Agent, deleteFiles, removeBranch bool) error {
+func (d *HTTPAgentDispatcher) DispatchAgentDelete(ctx context.Context, agent *store.Agent, deleteFiles, removeBranch, softDelete bool, deletedAt time.Time) error {
 	if agent.RuntimeBrokerID == "" {
 		return fmt.Errorf("agent has no runtime broker assigned")
 	}
@@ -931,7 +934,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentDelete(ctx context.Context, agent *st
 		return err
 	}
 
-	return d.client.DeleteAgent(ctx, agent.RuntimeBrokerID, endpoint, agent.Name, deleteFiles, removeBranch)
+	return d.client.DeleteAgent(ctx, agent.RuntimeBrokerID, endpoint, agent.Name, deleteFiles, removeBranch, softDelete, deletedAt)
 }
 
 // DispatchAgentMessage sends a message to an agent on the runtime broker.

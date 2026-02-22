@@ -223,9 +223,12 @@ func (c *AuthenticatedBrokerClient) RestartAgent(ctx context.Context, brokerID, 
 }
 
 // DeleteAgent deletes an agent from a remote runtime broker with HMAC authentication.
-func (c *AuthenticatedBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch bool) error {
+func (c *AuthenticatedBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch, softDelete bool, deletedAt time.Time) error {
 	endpoint := fmt.Sprintf("%s/api/v1/agents/%s?deleteFiles=%t&removeBranch=%t",
 		strings.TrimSuffix(brokerEndpoint, "/"), url.PathEscape(agentID), deleteFiles, removeBranch)
+	if softDelete {
+		endpoint += fmt.Sprintf("&softDelete=true&deletedAt=%s", url.QueryEscape(deletedAt.Format(time.RFC3339)))
+	}
 
 	resp, err := c.doRequest(ctx, brokerID, http.MethodDelete, endpoint, nil)
 	if err != nil {

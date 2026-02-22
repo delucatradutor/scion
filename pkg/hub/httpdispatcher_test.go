@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/store"
@@ -122,7 +123,7 @@ func (m *mockRuntimeBrokerClient) RestartAgent(ctx context.Context, brokerID, br
 	return m.returnErr
 }
 
-func (m *mockRuntimeBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch bool) error {
+func (m *mockRuntimeBrokerClient) DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch, softDelete bool, deletedAt time.Time) error {
 	m.deleteCalled = true
 	m.lastBrokerID = brokerID
 	m.lastEndpoint = brokerEndpoint
@@ -273,7 +274,7 @@ func TestHTTPAgentDispatcher_DispatchAgentDelete(t *testing.T) {
 		RuntimeBrokerID: "host-1",
 	}
 
-	err := dispatcher.DispatchAgentDelete(ctx, agent, true, false)
+	err := dispatcher.DispatchAgentDelete(ctx, agent, true, false, false, time.Time{})
 	if err != nil {
 		t.Fatalf("DispatchAgentDelete failed: %v", err)
 	}
@@ -427,7 +428,7 @@ func TestHTTPRuntimeBrokerClient_DeleteAgent(t *testing.T) {
 
 	client := NewHTTPRuntimeBrokerClient()
 
-	err := client.DeleteAgent(context.Background(), "host-1", server.URL, "test-agent", true, false)
+	err := client.DeleteAgent(context.Background(), "host-1", server.URL, "test-agent", true, false, false, time.Time{})
 	if err != nil {
 		t.Fatalf("DeleteAgent failed: %v", err)
 	}

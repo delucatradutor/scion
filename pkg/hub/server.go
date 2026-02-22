@@ -138,7 +138,9 @@ type AgentDispatcher interface {
 	// DispatchAgentDelete removes an agent from the runtime broker.
 	// deleteFiles indicates whether to delete workspace files.
 	// removeBranch indicates whether to remove the git branch.
-	DispatchAgentDelete(ctx context.Context, agent *store.Agent, deleteFiles, removeBranch bool) error
+	// softDelete indicates this is a soft-delete (broker should mark agent-info.json).
+	// deletedAt is the soft-deletion timestamp (zero for hard delete).
+	DispatchAgentDelete(ctx context.Context, agent *store.Agent, deleteFiles, removeBranch, softDelete bool, deletedAt time.Time) error
 
 	// DispatchAgentMessage sends a message to an agent on the runtime broker.
 	DispatchAgentMessage(ctx context.Context, agent *store.Agent, message string, interrupt bool) error
@@ -180,7 +182,8 @@ type RuntimeBrokerClient interface {
 
 	// DeleteAgent deletes an agent from a remote runtime broker.
 	// brokerID is used for HMAC authentication lookup.
-	DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch bool) error
+	// softDelete and deletedAt are passed as query params for broker-side marking.
+	DeleteAgent(ctx context.Context, brokerID, brokerEndpoint, agentID string, deleteFiles, removeBranch, softDelete bool, deletedAt time.Time) error
 
 	// MessageAgent sends a message to an agent on a remote runtime broker.
 	// brokerID is used for HMAC authentication lookup.
