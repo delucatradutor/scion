@@ -36,6 +36,7 @@ export default defineConfig({
 						{ label: 'Core Concepts', slug: 'concepts' },
 						{ label: 'Supported Harnesses', slug: 'supported-harnesses' },
 						{ label: 'Glossary', slug: 'glossary' },
+						{ label: 'Release Notes', slug: 'release-notes' },
 					],
 				},
 				{
