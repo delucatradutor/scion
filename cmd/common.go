@@ -60,6 +60,7 @@ var (
 	workspace         string
 	runtimeBrokerID   string
 	harnessConfigFlag string
+	notify            bool
 )
 
 // HubContext holds the context for Hub operations.
@@ -275,6 +276,11 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		return startAgentViaHub(hubCtx, agentName, task, resume)
 	}
 
+	// --notify requires Hub mode
+	if notify {
+		return fmt.Errorf("--notify requires Hub mode. Connect to a Hub with 'scion hub status <endpoint>'")
+	}
+
 	// Local mode
 	effectiveProfile := profile
 	if effectiveProfile == "" {
@@ -472,6 +478,7 @@ func startAgentViaHub(hubCtx *HubContext, agentName, task string, resume bool) e
 		Resume:        resume,
 		Attach:        attach,
 		GatherEnv:    true, // Enable env-gather flow
+		Notify:       notify,
 	}
 
 	// Build config if we have image override or debug mode

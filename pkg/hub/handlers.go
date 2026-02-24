@@ -186,6 +186,8 @@ type CreateAgentRequest struct {
 	// GatherEnv enables the env-gather flow where the broker evaluates env
 	// completeness and may return a 202 requiring the CLI to supply missing values.
 	GatherEnv bool `json:"gatherEnv,omitempty"`
+	// Notify subscribes the creating agent/user to status notifications for the new agent.
+	Notify bool `json:"notify,omitempty"`
 }
 
 type AgentConfigOverride struct {
@@ -300,6 +302,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	// Check if the caller is an agent (sub-agent creation)
 	var createdBy string
 	var creatorName string
+	var notifySubscriberType, notifySubscriberID string // For --notify subscription
 	if agentIdent := GetAgentIdentityFromContext(ctx); agentIdent != nil {
 		// Agent callers must have the grove:agent:create scope
 		if !agentIdent.HasScope(ScopeAgentCreate) {
@@ -315,10 +318,14 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		// Resolve human-readable creator name from the calling agent
 		if creatorAgent, err := s.store.GetAgent(ctx, agentIdent.ID()); err == nil {
 			creatorName = creatorAgent.Name
+			notifySubscriberType = store.SubscriberTypeAgent
+			notifySubscriberID = creatorAgent.Slug
 		}
 	} else if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
 		createdBy = userIdent.ID()
 		creatorName = userIdent.Email()
+		notifySubscriberType = store.SubscriberTypeUser
+		notifySubscriberID = userIdent.ID()
 	}
 
 	// Verify grove exists and get its configuration
@@ -445,6 +452,24 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.CreateAgent(ctx, agent); err != nil {
 		writeErrorFromErr(w, err, "")
 		return
+	}
+
+	// Create notification subscription if requested
+	if req.Notify && notifySubscriberID != "" {
+		sub := &store.NotificationSubscription{
+			ID:              api.NewUUID(),
+			AgentID:         agent.ID,
+			SubscriberType:  notifySubscriberType,
+			SubscriberID:    notifySubscriberID,
+			GroveID:         req.GroveID,
+			TriggerStatuses: []string{"COMPLETED", "WAITING_FOR_INPUT", "LIMITS_EXCEEDED"},
+			CreatedAt:       time.Now(),
+			CreatedBy:       createdBy,
+		}
+		if err := s.store.CreateNotificationSubscription(ctx, sub); err != nil {
+			slog.Warn("Failed to create notification subscription",
+				"agentID", agent.ID, "subscriber", notifySubscriberID, "error", err)
+		}
 	}
 
 	// Workspace bootstrap mode: if WorkspaceFiles are provided with a task,

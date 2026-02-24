@@ -740,15 +740,15 @@ Future work may add `scion get-notified <agent>` to allow additional actors to s
 
 ## Implementation Plan
 
-### Phase 1: Core Infrastructure
-1. Add `notification_subscriptions` and `notifications` tables (new SQLite migration).
-2. Add `NotificationStore` interface and SQLite implementation.
-3. Add `NotificationSubscription` and `Notification` models to `pkg/store/models.go`.
+### Phase 1: Core Infrastructure ✓
+1. ~~Add `notification_subscriptions` and `notifications` tables (new SQLite migration).~~
+2. ~~Add `NotificationStore` interface and SQLite implementation.~~
+3. ~~Add `NotificationSubscription` and `Notification` models to `pkg/store/models.go`.~~
 
-### Phase 2: Notification Dispatcher
-4. Implement `NotificationDispatcher` in `pkg/hub/notifications.go` with store-then-dispatch pattern.
-5. Wire dispatcher into Hub server startup/shutdown.
-6. Add unit tests for event matching, storage, dispatch, and deduplication.
+### Phase 2: Notification Dispatcher ✓
+4. ~~Implement `NotificationDispatcher` in `pkg/hub/notifications.go` with store-then-dispatch pattern.~~
+5. ~~Wire dispatcher into Hub server startup/shutdown.~~
+6. ~~Add unit tests for event matching, storage, dispatch, and deduplication.~~
 
 ### Phase 3: CLI and API Integration
 7. Add `--notify` boolean flag to `cmd/start.go`.

@@ -112,6 +112,9 @@ func TestServer_GenerateAgentToken_DevAuthAutoGrantsScopes(t *testing.T) {
 	if !claims.HasScope(ScopeAgentLifecycle) {
 		t.Error("expected ScopeAgentLifecycle to be auto-granted in dev-auth mode")
 	}
+	if !claims.HasScope(ScopeAgentNotify) {
+		t.Error("expected ScopeAgentNotify to be auto-granted in dev-auth mode")
+	}
 }
 
 func TestServer_GenerateAgentToken_DevAuthDeduplicatesScopes(t *testing.T) {

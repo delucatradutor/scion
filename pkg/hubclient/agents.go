@@ -127,6 +127,10 @@ type CreateAgentRequest struct {
 	// completeness and return a 202 with requirements if keys are missing,
 	// allowing the CLI to gather and submit them.
 	GatherEnv bool `json:"gatherEnv,omitempty"`
+
+	// Notify subscribes the creating agent/user to status notifications
+	// (COMPLETED, WAITING_FOR_INPUT, LIMITS_EXCEEDED) for the new agent.
+	Notify bool `json:"notify,omitempty"`
 }
 
 // CreateAgentResponse is the response from creating an agent.

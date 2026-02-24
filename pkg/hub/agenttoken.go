@@ -50,6 +50,8 @@ const (
 	ScopeAgentCreate AgentTokenScope = "grove:agent:create"
 	// ScopeAgentLifecycle allows the agent to start/stop/restart agents within the same grove.
 	ScopeAgentLifecycle AgentTokenScope = "grove:agent:lifecycle"
+	// ScopeAgentNotify allows the agent to create notification subscriptions within the same grove.
+	ScopeAgentNotify AgentTokenScope = "grove:agent:notify"
 )
 
 // AgentTokenClaims represents the custom claims in an agent JWT.

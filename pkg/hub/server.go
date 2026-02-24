@@ -743,7 +743,7 @@ func (s *Server) GenerateAgentToken(agentID, groveID string, additionalScopes ..
 	// In dev-auth mode, auto-grant agent creation and lifecycle scopes
 	// so agents can create sub-agents without explicit template configuration.
 	if s.config.DevAuthToken != "" {
-		scopes = append(scopes, ScopeAgentCreate, ScopeAgentLifecycle)
+		scopes = append(scopes, ScopeAgentCreate, ScopeAgentLifecycle, ScopeAgentNotify)
 	}
 
 	// Merge additional scopes, deduplicating

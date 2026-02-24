@@ -2004,3 +2004,217 @@ func TestCreateAgent_BrokerIDRecovery(t *testing.T) {
 	assert.Equal(t, "broker-create", persisted.RuntimeBrokerID,
 		"RuntimeBrokerID should be recovered from resolved broker")
 }
+
+// --- Phase 3: Notification Subscription on Agent Create ---
+
+func TestCreateAgent_NotifyCreatesSubscription(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Create grove and broker infrastructure
+	grove := &store.Grove{
+		ID:   "grove-notify",
+		Name: "Notify Grove",
+		Slug: "notify-grove",
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	broker := &store.RuntimeBroker{
+		ID:     "broker-notify",
+		Name:   "Notify Broker",
+		Slug:   "notify-broker",
+		Status: store.BrokerStatusOnline,
+	}
+	require.NoError(t, s.CreateRuntimeBroker(ctx, broker))
+	require.NoError(t, s.AddGroveProvider(ctx, &store.GroveProvider{
+		GroveID:    grove.ID,
+		BrokerID:   broker.ID,
+		BrokerName: broker.Name,
+		Status:     store.BrokerStatusOnline,
+	}))
+	grove.DefaultRuntimeBrokerID = broker.ID
+	require.NoError(t, s.UpdateGrove(ctx, grove))
+
+	// Create the calling agent (the one that will subscribe to notifications)
+	callingAgent := &store.Agent{
+		ID:      "agent-lead",
+		Slug:    "lead-agent",
+		Name:    "Lead Agent",
+		GroveID: grove.ID,
+		Status:  store.AgentStatusRunning,
+	}
+	require.NoError(t, s.CreateAgent(ctx, callingAgent))
+
+	tokenSvc := srv.GetAgentTokenService()
+	require.NotNil(t, tokenSvc)
+
+	t.Run("Notify=true creates subscription for agent caller", func(t *testing.T) {
+		token, err := tokenSvc.GenerateAgentToken(callingAgent.ID, grove.ID, []AgentTokenScope{
+			ScopeAgentStatusUpdate,
+			ScopeAgentCreate,
+			ScopeAgentNotify,
+		})
+		require.NoError(t, err)
+
+		body, _ := json.Marshal(CreateAgentRequest{
+			Name:    "Sub Worker",
+			GroveID: grove.ID,
+			Task:    "implement auth module",
+			Notify:  true,
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
+		req.Header.Set("X-Scion-Agent-Token", token)
+		req.Header.Set("Content-Type", "application/json")
+
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var resp CreateAgentResponse
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NotNil(t, resp.Agent)
+
+		// Verify subscription was created for the new agent
+		subs, err := s.GetNotificationSubscriptions(ctx, resp.Agent.ID)
+		require.NoError(t, err)
+		require.Len(t, subs, 1, "should have exactly one subscription")
+
+		sub := subs[0]
+		assert.Equal(t, resp.Agent.ID, sub.AgentID)
+		assert.Equal(t, store.SubscriberTypeAgent, sub.SubscriberType)
+		assert.Equal(t, callingAgent.Slug, sub.SubscriberID)
+		assert.Equal(t, grove.ID, sub.GroveID)
+		assert.Equal(t, callingAgent.ID, sub.CreatedBy)
+		assert.Contains(t, sub.TriggerStatuses, "COMPLETED")
+		assert.Contains(t, sub.TriggerStatuses, "WAITING_FOR_INPUT")
+		assert.Contains(t, sub.TriggerStatuses, "LIMITS_EXCEEDED")
+	})
+
+	t.Run("Notify=false does not create subscription", func(t *testing.T) {
+		token, err := tokenSvc.GenerateAgentToken(callingAgent.ID, grove.ID, []AgentTokenScope{
+			ScopeAgentStatusUpdate,
+			ScopeAgentCreate,
+		})
+		require.NoError(t, err)
+
+		body, _ := json.Marshal(CreateAgentRequest{
+			Name:    "Sub Worker No Notify",
+			GroveID: grove.ID,
+			Task:    "implement tests",
+			Notify:  false,
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
+		req.Header.Set("X-Scion-Agent-Token", token)
+		req.Header.Set("Content-Type", "application/json")
+
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var resp CreateAgentResponse
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NotNil(t, resp.Agent)
+
+		subs, err := s.GetNotificationSubscriptions(ctx, resp.Agent.ID)
+		require.NoError(t, err)
+		assert.Len(t, subs, 0, "should have no subscriptions when notify=false")
+	})
+
+	t.Run("Notify=true for user caller creates user subscription", func(t *testing.T) {
+		rec := doRequest(t, srv, http.MethodPost, "/api/v1/agents", CreateAgentRequest{
+			Name:    "User Notified Agent",
+			GroveID: grove.ID,
+			Task:    "run analysis",
+			Notify:  true,
+		})
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var resp CreateAgentResponse
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NotNil(t, resp.Agent)
+
+		subs, err := s.GetNotificationSubscriptions(ctx, resp.Agent.ID)
+		require.NoError(t, err)
+		require.Len(t, subs, 1, "should have exactly one subscription")
+
+		sub := subs[0]
+		assert.Equal(t, resp.Agent.ID, sub.AgentID)
+		assert.Equal(t, store.SubscriberTypeUser, sub.SubscriberType)
+		assert.Equal(t, grove.ID, sub.GroveID)
+	})
+}
+
+func TestCreateAgent_NotifySubscriptionCascadeOnDelete(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID:   "grove-cascade",
+		Name: "Cascade Grove",
+		Slug: "cascade-grove",
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	broker := &store.RuntimeBroker{
+		ID:     "broker-cascade",
+		Name:   "Cascade Broker",
+		Slug:   "cascade-broker",
+		Status: store.BrokerStatusOnline,
+	}
+	require.NoError(t, s.CreateRuntimeBroker(ctx, broker))
+	require.NoError(t, s.AddGroveProvider(ctx, &store.GroveProvider{
+		GroveID:    grove.ID,
+		BrokerID:   broker.ID,
+		BrokerName: broker.Name,
+		Status:     store.BrokerStatusOnline,
+	}))
+	grove.DefaultRuntimeBrokerID = broker.ID
+	require.NoError(t, s.UpdateGrove(ctx, grove))
+
+	callingAgent := &store.Agent{
+		ID:      "agent-cascade-lead",
+		Slug:    "cascade-lead",
+		Name:    "Cascade Lead",
+		GroveID: grove.ID,
+		Status:  store.AgentStatusRunning,
+	}
+	require.NoError(t, s.CreateAgent(ctx, callingAgent))
+
+	tokenSvc := srv.GetAgentTokenService()
+	token, err := tokenSvc.GenerateAgentToken(callingAgent.ID, grove.ID, []AgentTokenScope{
+		ScopeAgentStatusUpdate,
+		ScopeAgentCreate,
+		ScopeAgentNotify,
+	})
+	require.NoError(t, err)
+
+	// Create agent with notify
+	body, _ := json.Marshal(CreateAgentRequest{
+		Name:    "Cascade Sub",
+		GroveID: grove.ID,
+		Task:    "do work",
+		Notify:  true,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(body))
+	req.Header.Set("X-Scion-Agent-Token", token)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp CreateAgentResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	// Verify subscription exists
+	subs, err := s.GetNotificationSubscriptions(ctx, resp.Agent.ID)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+
+	// Delete the agent — subscriptions should cascade delete
+	require.NoError(t, s.DeleteAgent(ctx, resp.Agent.ID))
+
+	subs, err = s.GetNotificationSubscriptions(ctx, resp.Agent.ID)
+	require.NoError(t, err)
+	assert.Len(t, subs, 0, "subscriptions should be cascade-deleted with agent")
+}
