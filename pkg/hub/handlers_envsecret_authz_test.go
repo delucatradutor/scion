@@ -711,3 +711,433 @@ func TestEnvVar_HubEndpoint_GroveScope_NonOwnerDenied(t *testing.T) {
 		t.Errorf("expected 403 for non-owner via hub endpoint, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// ============================================================================
+// Secret Promotion & Unified View Tests
+// ============================================================================
+
+func TestEnvVar_SecretPromotion_NoBackend_Returns501(t *testing.T) {
+	srv, _ := testServer(t)
+	// Do NOT set a secret backend — secretBackend is nil
+
+	body := SetEnvVarRequest{
+		Value:  "super-secret",
+		Secret: true,
+	}
+	rec := doRequest(t, srv, http.MethodPut, "/api/v1/env/MY_SECRET_VAR?scope=user", body)
+	if rec.Code != http.StatusNotImplemented {
+		t.Errorf("expected 501 when secret backend is nil, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestEnvVar_SecretPromotion_LocalBackend_Returns501(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+
+	// LocalBackend.Set() returns ErrNoSecretBackend → should map to 501
+	body := SetEnvVarRequest{
+		Value:  "super-secret",
+		Secret: true,
+	}
+	rec := doRequest(t, srv, http.MethodPut, "/api/v1/env/MY_SECRET_VAR?scope=user", body)
+	if rec.Code != http.StatusNotImplemented {
+		t.Errorf("expected 501 from LocalBackend, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestEnvVar_UnifiedList_MergesSecrets(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+	ctx := context.Background()
+
+	// Create a plain env var
+	plainBody := SetEnvVarRequest{Value: "plain-value", Description: "A plain var"}
+	rec := doRequest(t, srv, http.MethodPut, "/api/v1/env/PLAIN_VAR?scope=user", plainBody)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to create plain env var: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Create a secret directly in the store with type "environment"
+	if err := s.CreateSecret(ctx, &store.Secret{
+		ID:             "sec-env-1",
+		Key:            "SECRET_ENV_VAR",
+		EncryptedValue: "encrypted-val",
+		SecretType:     store.SecretTypeEnvironment,
+		Target:         "SECRET_ENV_VAR",
+		Scope:          store.ScopeUser,
+		ScopeID:        "dev-user",
+		Description:    "A secret env var",
+		CreatedBy:      "dev-user",
+	}); err != nil {
+		t.Fatalf("failed to create secret: %v", err)
+	}
+
+	// List env vars — should include both plain and secret
+	rec2 := doRequest(t, srv, http.MethodGet, "/api/v1/env?scope=user", nil)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	var resp ListEnvVarsResponse
+	if err := json.NewDecoder(rec2.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.EnvVars) != 2 {
+		t.Fatalf("expected 2 env vars in unified list, got %d", len(resp.EnvVars))
+	}
+
+	// Find the secret-backed entry
+	var foundSecret bool
+	for _, ev := range resp.EnvVars {
+		if ev.Key == "SECRET_ENV_VAR" {
+			foundSecret = true
+			if !ev.Secret {
+				t.Error("expected secret=true for secret-backed env var")
+			}
+			if !ev.Sensitive {
+				t.Error("expected sensitive=true for secret-backed env var")
+			}
+			if ev.Value != "********" {
+				t.Errorf("expected masked value, got %q", ev.Value)
+			}
+		}
+	}
+	if !foundSecret {
+		t.Error("SECRET_ENV_VAR not found in unified list")
+	}
+}
+
+func TestEnvVar_UnifiedList_Deduplication(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+	ctx := context.Background()
+
+	// Create a plain env var with key "DUPED_KEY"
+	plainBody := SetEnvVarRequest{Value: "plain-value"}
+	rec := doRequest(t, srv, http.MethodPut, "/api/v1/env/DUPED_KEY?scope=user", plainBody)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to create plain env var: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Also create a secret with the same key
+	if err := s.CreateSecret(ctx, &store.Secret{
+		ID:             "sec-dup-1",
+		Key:            "DUPED_KEY",
+		EncryptedValue: "secret-value",
+		SecretType:     store.SecretTypeEnvironment,
+		Target:         "DUPED_KEY",
+		Scope:          store.ScopeUser,
+		ScopeID:        "dev-user",
+	}); err != nil {
+		t.Fatalf("failed to create secret: %v", err)
+	}
+
+	// List — should show only 1 entry (the secret version wins)
+	rec2 := doRequest(t, srv, http.MethodGet, "/api/v1/env?scope=user", nil)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	var resp ListEnvVarsResponse
+	json.NewDecoder(rec2.Body).Decode(&resp)
+
+	count := 0
+	for _, ev := range resp.EnvVars {
+		if ev.Key == "DUPED_KEY" {
+			count++
+			if !ev.Secret {
+				t.Error("expected the secret version to win deduplication")
+			}
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 entry for DUPED_KEY, got %d", count)
+	}
+}
+
+func TestEnvVar_FallbackGet_FromSecretBackend(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+	ctx := context.Background()
+
+	// Create a secret (no plain env var)
+	if err := s.CreateSecret(ctx, &store.Secret{
+		ID:             "sec-get-1",
+		Key:            "ONLY_SECRET",
+		EncryptedValue: "secret-val",
+		SecretType:     store.SecretTypeEnvironment,
+		Target:         "ONLY_SECRET",
+		Scope:          store.ScopeUser,
+		ScopeID:        "dev-user",
+		Description:    "Only in secret backend",
+	}); err != nil {
+		t.Fatalf("failed to create secret: %v", err)
+	}
+
+	// Get via env var endpoint — should fallback to secret backend
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/env/ONLY_SECRET?scope=user", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var envVar store.EnvVar
+	if err := json.NewDecoder(rec.Body).Decode(&envVar); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !envVar.Secret {
+		t.Error("expected secret=true for fallback env var")
+	}
+	if envVar.Value != "********" {
+		t.Errorf("expected masked value, got %q", envVar.Value)
+	}
+	if envVar.Key != "ONLY_SECRET" {
+		t.Errorf("expected key ONLY_SECRET, got %q", envVar.Key)
+	}
+}
+
+func TestEnvVar_FallbackDelete_FromSecretBackend(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+	ctx := context.Background()
+
+	// Create a secret (no plain env var)
+	if err := s.CreateSecret(ctx, &store.Secret{
+		ID:             "sec-del-1",
+		Key:            "DEL_SECRET",
+		EncryptedValue: "secret-val",
+		SecretType:     store.SecretTypeEnvironment,
+		Target:         "DEL_SECRET",
+		Scope:          store.ScopeUser,
+		ScopeID:        "dev-user",
+	}); err != nil {
+		t.Fatalf("failed to create secret: %v", err)
+	}
+
+	// Delete via env var endpoint — should fallback to secret backend
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/env/DEL_SECRET?scope=user", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify it's gone — get should 404
+	rec2 := doRequest(t, srv, http.MethodGet, "/api/v1/env/DEL_SECRET?scope=user", nil)
+	if rec2.Code != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+}
+
+func TestEnvVar_StaleCleanup_PlainEnvVarRemovedOnPromotion(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+	ctx := context.Background()
+
+	// Create a plain env var
+	plainBody := SetEnvVarRequest{Value: "plain-val"}
+	rec := doRequest(t, srv, http.MethodPut, "/api/v1/env/UPGRADE_ME?scope=user", plainBody)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to create plain env var: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify it's in the store
+	_, err := s.GetEnvVar(ctx, "UPGRADE_ME", store.ScopeUser, "dev-user")
+	if err != nil {
+		t.Fatalf("expected env var in store, got error: %v", err)
+	}
+
+	// Try to promote to secret — LocalBackend.Set returns 501, so promotion fails
+	secretBody := SetEnvVarRequest{Value: "secret-val", Secret: true}
+	rec2 := doRequest(t, srv, http.MethodPut, "/api/v1/env/UPGRADE_ME?scope=user", secretBody)
+	if rec2.Code != http.StatusNotImplemented {
+		t.Errorf("expected 501 from LocalBackend promotion, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	// Plain env var should still exist (promotion failed, so no cleanup)
+	_, err = s.GetEnvVar(ctx, "UPGRADE_ME", store.ScopeUser, "dev-user")
+	if err != nil {
+		t.Errorf("plain env var should still exist after failed promotion: %v", err)
+	}
+}
+
+func TestEnvVar_NonEnvironmentSecrets_NotMerged(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+	ctx := context.Background()
+
+	// Create a secret with type "variable" (not "environment")
+	if err := s.CreateSecret(ctx, &store.Secret{
+		ID:             "sec-var-1",
+		Key:            "VARIABLE_SECRET",
+		EncryptedValue: "var-val",
+		SecretType:     store.SecretTypeVariable,
+		Target:         "VARIABLE_SECRET",
+		Scope:          store.ScopeUser,
+		ScopeID:        "dev-user",
+	}); err != nil {
+		t.Fatalf("failed to create secret: %v", err)
+	}
+
+	// List env vars — should NOT include the variable-type secret
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/env?scope=user", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp ListEnvVarsResponse
+	json.NewDecoder(rec.Body).Decode(&resp)
+
+	for _, ev := range resp.EnvVars {
+		if ev.Key == "VARIABLE_SECRET" {
+			t.Error("variable-type secret should not appear in env var list")
+		}
+	}
+}
+
+func TestEnvVar_GroveScope_SecretPromotion_Returns501(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID: "grove_promo_test", Name: "Promo Grove", Slug: "promo-grove",
+		OwnerID: "dev-user", Created: time.Now(), Updated: time.Now(),
+	}
+	if err := s.CreateGrove(ctx, grove); err != nil {
+		t.Fatalf("failed to create grove: %v", err)
+	}
+
+	body := SetEnvVarRequest{Value: "secret-val", Secret: true}
+	rec := doRequest(t, srv, http.MethodPut, "/api/v1/groves/"+grove.ID+"/env/GROVE_SECRET", body)
+	if rec.Code != http.StatusNotImplemented {
+		t.Errorf("expected 501 for grove secret promotion with LocalBackend, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestEnvVar_GroveScope_UnifiedList(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID: "grove_unified_list", Name: "Unified Grove", Slug: "unified-grove",
+		OwnerID: "dev-user", Created: time.Now(), Updated: time.Now(),
+	}
+	if err := s.CreateGrove(ctx, grove); err != nil {
+		t.Fatalf("failed to create grove: %v", err)
+	}
+
+	// Create a plain grove env var
+	plainBody := SetEnvVarRequest{Value: "grove-plain"}
+	rec := doRequest(t, srv, http.MethodPut, "/api/v1/groves/"+grove.ID+"/env/GROVE_PLAIN", plainBody)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to create grove env var: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Create an environment secret in the grove scope directly
+	if err := s.CreateSecret(ctx, &store.Secret{
+		ID:             "sec-grove-env-1",
+		Key:            "GROVE_SECRET_VAR",
+		EncryptedValue: "grove-secret-val",
+		SecretType:     store.SecretTypeEnvironment,
+		Target:         "GROVE_SECRET_VAR",
+		Scope:          store.ScopeGrove,
+		ScopeID:        grove.ID,
+	}); err != nil {
+		t.Fatalf("failed to create grove secret: %v", err)
+	}
+
+	// List grove env vars — should include both
+	rec2 := doRequest(t, srv, http.MethodGet, "/api/v1/groves/"+grove.ID+"/env", nil)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	var resp ListEnvVarsResponse
+	json.NewDecoder(rec2.Body).Decode(&resp)
+
+	if len(resp.EnvVars) != 2 {
+		t.Errorf("expected 2 env vars in grove unified list, got %d", len(resp.EnvVars))
+	}
+
+	var foundSecret bool
+	for _, ev := range resp.EnvVars {
+		if ev.Key == "GROVE_SECRET_VAR" {
+			foundSecret = true
+			if !ev.Secret {
+				t.Error("expected secret=true")
+			}
+		}
+	}
+	if !foundSecret {
+		t.Error("GROVE_SECRET_VAR not found in grove unified list")
+	}
+}
+
+func TestEnvVar_GroveScope_FallbackGet(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID: "grove_fallback_get", Name: "Fallback Get Grove", Slug: "fallback-get-grove",
+		OwnerID: "dev-user", Created: time.Now(), Updated: time.Now(),
+	}
+	if err := s.CreateGrove(ctx, grove); err != nil {
+		t.Fatalf("failed to create grove: %v", err)
+	}
+
+	if err := s.CreateSecret(ctx, &store.Secret{
+		ID:             "sec-grove-fb-1",
+		Key:            "GROVE_ONLY_SEC",
+		EncryptedValue: "secret-val",
+		SecretType:     store.SecretTypeEnvironment,
+		Target:         "GROVE_ONLY_SEC",
+		Scope:          store.ScopeGrove,
+		ScopeID:        grove.ID,
+	}); err != nil {
+		t.Fatalf("failed to create secret: %v", err)
+	}
+
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/groves/"+grove.ID+"/env/GROVE_ONLY_SEC", nil)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for grove fallback get, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var envVar store.EnvVar
+	json.NewDecoder(rec.Body).Decode(&envVar)
+	if !envVar.Secret {
+		t.Error("expected secret=true from fallback")
+	}
+}
+
+func TestEnvVar_GroveScope_FallbackDelete(t *testing.T) {
+	srv, s := testServer(t)
+	srv.SetSecretBackend(secret.NewLocalBackend(s))
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID: "grove_fallback_del", Name: "Fallback Del Grove", Slug: "fallback-del-grove",
+		OwnerID: "dev-user", Created: time.Now(), Updated: time.Now(),
+	}
+	if err := s.CreateGrove(ctx, grove); err != nil {
+		t.Fatalf("failed to create grove: %v", err)
+	}
+
+	if err := s.CreateSecret(ctx, &store.Secret{
+		ID:             "sec-grove-del-1",
+		Key:            "GROVE_DEL_SEC",
+		EncryptedValue: "secret-val",
+		SecretType:     store.SecretTypeEnvironment,
+		Target:         "GROVE_DEL_SEC",
+		Scope:          store.ScopeGrove,
+		ScopeID:        grove.ID,
+	}); err != nil {
+		t.Fatalf("failed to create secret: %v", err)
+	}
+
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/groves/"+grove.ID+"/env/GROVE_DEL_SEC", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204 for grove fallback delete, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
