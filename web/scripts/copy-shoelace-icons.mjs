@@ -60,7 +60,6 @@ const USED_ICONS = [
   'shield-x',
   'stop-circle',
   'sun',
-  'sun-moon',
   'terminal',
   'trash',
   'upload',
