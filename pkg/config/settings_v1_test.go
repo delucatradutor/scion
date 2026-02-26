@@ -1358,12 +1358,13 @@ func TestConvertV1ServerToGlobalConfig_Basic(t *testing.T) {
 			},
 		},
 		Broker: &V1BrokerConfig{
-			Enabled:        true,
-			Port:           9800,
-			BrokerID:       "broker-123",
-			BrokerName:     "my-broker",
-			BrokerNickname: "nick",
-			HubEndpoint:    "https://hub.example.com",
+			Enabled:              true,
+			Port:                 9800,
+			BrokerID:             "broker-123",
+			BrokerName:           "my-broker",
+			BrokerNickname:       "nick",
+			HubEndpoint:          "https://hub.example.com",
+			ContainerHubEndpoint: "http://host.containers.internal:8080",
 		},
 		Database: &V1DatabaseConfig{
 			Driver: "sqlite",
@@ -1397,6 +1398,7 @@ func TestConvertV1ServerToGlobalConfig_Basic(t *testing.T) {
 	// BrokerName takes priority over BrokerNickname when both are set
 	assert.Equal(t, "my-broker", gc.RuntimeBroker.BrokerName)
 	assert.Equal(t, "https://hub.example.com", gc.RuntimeBroker.HubEndpoint)
+	assert.Equal(t, "http://host.containers.internal:8080", gc.RuntimeBroker.ContainerHubEndpoint)
 	assert.Equal(t, "sqlite", gc.Database.Driver)
 	assert.Equal(t, "/tmp/hub.db", gc.Database.URL)
 	assert.Equal(t, true, gc.Auth.Enabled)

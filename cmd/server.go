@@ -517,13 +517,23 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 		// and no explicit endpoint was configured. This ensures the Hub
 		// dispatcher always has a proper endpoint to send to brokers/agents.
 		if hubEndpoint == "" && enableHub {
-			port := cfg.Hub.Port
-			if enableWeb {
-				port = webPort
-			}
-			hubEndpoint = fmt.Sprintf("http://localhost:%d", port)
-			if enableDebug {
-				log.Printf("Auto-computed hub endpoint for dispatcher: %s", hubEndpoint)
+			// Prefer SCION_SERVER_BASE_URL if set — this is the public URL of
+			// the combined server (e.g. "https://hub.demo.scion-ai.dev") and
+			// is reachable from remote brokers and agents inside containers.
+			if baseURL := os.Getenv("SCION_SERVER_BASE_URL"); baseURL != "" {
+				hubEndpoint = strings.TrimRight(baseURL, "/")
+				if enableDebug {
+					log.Printf("Hub endpoint resolved from SCION_SERVER_BASE_URL: %s", hubEndpoint)
+				}
+			} else {
+				port := cfg.Hub.Port
+				if enableWeb {
+					port = webPort
+				}
+				hubEndpoint = fmt.Sprintf("http://localhost:%d", port)
+				if enableDebug {
+					log.Printf("Auto-computed hub endpoint for dispatcher: %s", hubEndpoint)
+				}
 			}
 		}
 
@@ -890,11 +900,12 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 
 		// Create Runtime Broker server configuration
 		rhCfg := runtimebroker.ServerConfig{
-			Port:               cfg.RuntimeBroker.Port,
-			Host:               cfg.RuntimeBroker.Host,
-			ReadTimeout:        cfg.RuntimeBroker.ReadTimeout,
-			WriteTimeout:       cfg.RuntimeBroker.WriteTimeout,
-			HubEndpoint:        hubEndpointForRH,
+			Port:                 cfg.RuntimeBroker.Port,
+			Host:                 cfg.RuntimeBroker.Host,
+			ReadTimeout:          cfg.RuntimeBroker.ReadTimeout,
+			WriteTimeout:         cfg.RuntimeBroker.WriteTimeout,
+			HubEndpoint:          hubEndpointForRH,
+			ContainerHubEndpoint: cfg.RuntimeBroker.ContainerHubEndpoint,
 			BrokerID:           brokerID,
 			BrokerName:         brokerName,
 			CORSEnabled:        cfg.RuntimeBroker.CORSEnabled,

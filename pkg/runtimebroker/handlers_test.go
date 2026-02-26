@@ -17,6 +17,7 @@ package runtimebroker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1015,6 +1016,117 @@ func TestCreateAgentGroveHubEndpointSuppressedWhenDisabled(t *testing.T) {
 		// Dispatcher-provided endpoint should still be used (it's authoritative)
 		if got := mgr.lastEnv["SCION_HUB_ENDPOINT"]; got != "https://hub.authoritative.com" {
 			t.Errorf("expected SCION_HUB_ENDPOINT='https://hub.authoritative.com' from dispatcher, got %q", got)
+		}
+	})
+}
+
+// TestCreateAgentContainerHubEndpointOverride tests that ContainerHubEndpoint
+// overrides the dispatcher-provided endpoint for container injection.
+func TestCreateAgentContainerHubEndpointOverride(t *testing.T) {
+	t.Run("container endpoint overrides request endpoint", func(t *testing.T) {
+		cfg := DefaultServerConfig()
+		cfg.BrokerID = "test-broker-id"
+		cfg.BrokerName = "test-host"
+		cfg.Debug = true
+		cfg.ContainerHubEndpoint = "http://host.containers.internal:8080"
+
+		mgr := &envCapturingManager{}
+		rt := &runtime.MockRuntime{}
+		srv := New(cfg, mgr, rt)
+
+		body := `{
+			"name": "test-agent",
+			"hubEndpoint": "http://localhost:8080"
+		}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, w.Code, w.Body.String())
+		}
+
+		if mgr.lastEnv == nil {
+			t.Fatal("expected environment variables to be set")
+		}
+
+		// ContainerHubEndpoint should override the request's localhost value
+		if got := mgr.lastEnv["SCION_HUB_ENDPOINT"]; got != "http://host.containers.internal:8080" {
+			t.Errorf("expected SCION_HUB_ENDPOINT='http://host.containers.internal:8080' from container override, got %q", got)
+		}
+		if got := mgr.lastEnv["SCION_HUB_URL"]; got != "http://host.containers.internal:8080" {
+			t.Errorf("expected SCION_HUB_URL='http://host.containers.internal:8080' from container override, got %q", got)
+		}
+	})
+
+	t.Run("grove settings still override container endpoint", func(t *testing.T) {
+		cfg := DefaultServerConfig()
+		cfg.BrokerID = "test-broker-id"
+		cfg.BrokerName = "test-host"
+		cfg.Debug = true
+		cfg.ContainerHubEndpoint = "http://host.containers.internal:8080"
+
+		mgr := &envCapturingManager{}
+		rt := &runtime.MockRuntime{}
+		srv := New(cfg, mgr, rt)
+
+		// Create a grove directory with settings.yaml containing hub.endpoint
+		groveDir := filepath.Join(t.TempDir(), ".scion")
+		if err := os.MkdirAll(groveDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		settingsContent := `schema_version: "1"
+hub:
+  enabled: true
+  endpoint: "https://tunnel.example.com"
+`
+		if err := os.WriteFile(filepath.Join(groveDir, "settings.yaml"), []byte(settingsContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		body := fmt.Sprintf(`{
+			"name": "test-agent",
+			"hubEndpoint": "http://localhost:8080",
+			"grovePath": %q
+		}`, groveDir)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, w.Code, w.Body.String())
+		}
+
+		// Grove settings should take priority over ContainerHubEndpoint
+		if got := mgr.lastEnv["SCION_HUB_ENDPOINT"]; got != "https://tunnel.example.com" {
+			t.Errorf("expected SCION_HUB_ENDPOINT='https://tunnel.example.com' from grove settings, got %q", got)
+		}
+	})
+
+	t.Run("no container endpoint uses request endpoint", func(t *testing.T) {
+		srv, mgr := newTestServerWithEnvCapture()
+
+		body := `{
+			"name": "test-agent",
+			"hubEndpoint": "https://hub.public.com"
+		}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, w.Code, w.Body.String())
+		}
+
+		// Without ContainerHubEndpoint, request endpoint is used
+		if got := mgr.lastEnv["SCION_HUB_ENDPOINT"]; got != "https://hub.public.com" {
+			t.Errorf("expected SCION_HUB_ENDPOINT='https://hub.public.com' from request, got %q", got)
 		}
 	})
 }

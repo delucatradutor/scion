@@ -53,6 +53,10 @@ type ServerConfig struct {
 
 	// HubEndpoint is the Hub API endpoint for reporting (optional).
 	HubEndpoint string
+	// ContainerHubEndpoint overrides HubEndpoint when injecting the Hub URL
+	// into agent containers. Used for local development where containers
+	// need a bridge address (e.g. host.containers.internal) instead of localhost.
+	ContainerHubEndpoint string
 
 	// BrokerID is a unique identifier for this runtime broker.
 	BrokerID string

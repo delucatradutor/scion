@@ -203,8 +203,9 @@ type V1BrokerConfig struct {
 	Host            string       `json:"host,omitempty" yaml:"host,omitempty" koanf:"host"`
 	ReadTimeout     string       `json:"read_timeout,omitempty" yaml:"read_timeout,omitempty" koanf:"read_timeout"`
 	WriteTimeout    string       `json:"write_timeout,omitempty" yaml:"write_timeout,omitempty" koanf:"write_timeout"`
-	HubEndpoint     string       `json:"hub_endpoint,omitempty" yaml:"hub_endpoint,omitempty" koanf:"hub_endpoint"`
-	BrokerID        string       `json:"broker_id,omitempty" yaml:"broker_id,omitempty" koanf:"broker_id"`
+	HubEndpoint          string       `json:"hub_endpoint,omitempty" yaml:"hub_endpoint,omitempty" koanf:"hub_endpoint"`
+	ContainerHubEndpoint string       `json:"container_hub_endpoint,omitempty" yaml:"container_hub_endpoint,omitempty" koanf:"container_hub_endpoint"`
+	BrokerID             string       `json:"broker_id,omitempty" yaml:"broker_id,omitempty" koanf:"broker_id"`
 	BrokerName      string       `json:"broker_name,omitempty" yaml:"broker_name,omitempty" koanf:"broker_name"`
 	BrokerNickname  string       `json:"broker_nickname,omitempty" yaml:"broker_nickname,omitempty" koanf:"broker_nickname"`
 	BrokerToken     string       `json:"broker_token,omitempty" yaml:"broker_token,omitempty" koanf:"broker_token"`
@@ -518,6 +519,7 @@ var knownCompoundFields = []string{
 	"broker_token",
 	"admin_emails",
 	"hub_endpoint",
+	"container_hub_endpoint",
 	"broker_name",
 	"public_url",
 	"local_path",
@@ -777,6 +779,9 @@ func ConvertV1ServerToGlobalConfig(v1 *V1ServerConfig) *GlobalConfig {
 		if v1.Broker.HubEndpoint != "" {
 			gc.RuntimeBroker.HubEndpoint = v1.Broker.HubEndpoint
 		}
+		if v1.Broker.ContainerHubEndpoint != "" {
+			gc.RuntimeBroker.ContainerHubEndpoint = v1.Broker.ContainerHubEndpoint
+		}
 		if v1.Broker.BrokerID != "" {
 			gc.RuntimeBroker.BrokerID = v1.Broker.BrokerID
 		}
@@ -930,8 +935,9 @@ func ConvertGlobalToV1ServerConfig(gc *GlobalConfig) *V1ServerConfig {
 		Host:         gc.RuntimeBroker.Host,
 		ReadTimeout:  gc.RuntimeBroker.ReadTimeout.String(),
 		WriteTimeout: gc.RuntimeBroker.WriteTimeout.String(),
-		HubEndpoint:  gc.RuntimeBroker.HubEndpoint,
-		BrokerID:     gc.RuntimeBroker.BrokerID,
+		HubEndpoint:          gc.RuntimeBroker.HubEndpoint,
+		ContainerHubEndpoint: gc.RuntimeBroker.ContainerHubEndpoint,
+		BrokerID:             gc.RuntimeBroker.BrokerID,
 		BrokerName:   gc.RuntimeBroker.BrokerName,
 		CORS: &V1CORSConfig{
 			Enabled:        gc.RuntimeBroker.CORSEnabled,

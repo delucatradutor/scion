@@ -297,13 +297,24 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	// Set Hub URL with priority:
 	// 1. Grove settings hub.endpoint (most specific: user's project-level config)
-	// 2. Request's HubEndpoint (from Hub dispatcher's server config)
-	// 3. Broker's configured HubEndpoint (server-level fallback)
+	// 2. Broker's ContainerHubEndpoint (container-accessible override, e.g. host.containers.internal)
+	// 3. Request's HubEndpoint (from Hub dispatcher's server config)
+	// 4. Broker's configured HubEndpoint (server-level fallback)
 	hubEndpoint := req.HubEndpoint
 	if hubEndpoint == "" && s.config.HubEndpoint != "" {
 		hubEndpoint = s.config.HubEndpoint
 		if s.config.Debug {
 			slog.Debug("Using server Hub endpoint as fallback", "endpoint", hubEndpoint)
+		}
+	}
+	// Apply ContainerHubEndpoint override. When configured, this replaces the
+	// dispatcher/broker endpoint with a container-accessible address. This is
+	// needed for local development where the Hub runs on localhost but agents
+	// inside containers must use a bridge address like host.containers.internal.
+	if s.config.ContainerHubEndpoint != "" {
+		hubEndpoint = s.config.ContainerHubEndpoint
+		if s.config.Debug {
+			slog.Debug("Hub endpoint overridden by ContainerHubEndpoint", "endpoint", hubEndpoint)
 		}
 	}
 	// Override with grove settings if available. The grove's hub.endpoint reflects

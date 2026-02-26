@@ -466,6 +466,38 @@ runtimeBroker:
 	// For RuntimeBroker hubEndpoint, use config file or the settings.yaml fallback (Fix 6).
 }
 
+// TestContainerHubEndpointConfiguration tests the ContainerHubEndpoint config field.
+func TestContainerHubEndpointConfiguration(t *testing.T) {
+	t.Run("default is empty", func(t *testing.T) {
+		cfg := DefaultGlobalConfig()
+		if cfg.RuntimeBroker.ContainerHubEndpoint != "" {
+			t.Errorf("expected RuntimeBroker.ContainerHubEndpoint to be empty by default, got %q", cfg.RuntimeBroker.ContainerHubEndpoint)
+		}
+	})
+
+	t.Run("from config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "server.yaml")
+
+		configContent := `
+runtimeBroker:
+  containerHubEndpoint: "http://host.containers.internal:8080"
+`
+		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			t.Fatalf("failed to write config file: %v", err)
+		}
+
+		cfg, err := LoadGlobalConfig(configPath)
+		if err != nil {
+			t.Fatalf("failed to load config: %v", err)
+		}
+
+		if cfg.RuntimeBroker.ContainerHubEndpoint != "http://host.containers.internal:8080" {
+			t.Errorf("expected RuntimeBroker.ContainerHubEndpoint 'http://host.containers.internal:8080', got %q", cfg.RuntimeBroker.ContainerHubEndpoint)
+		}
+	})
+}
+
 func TestSettingsYamlEnvVarOverride(t *testing.T) {
 	// This test verifies that when config is loaded from settings.yaml (the
 	// non-legacy path), SCION_SERVER_ env vars still override values.

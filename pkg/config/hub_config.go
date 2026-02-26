@@ -76,6 +76,12 @@ type RuntimeBrokerConfig struct {
 	// HubEndpoint is the Hub API endpoint for status reporting (when Hub not co-located)
 	HubEndpoint string `json:"hubEndpoint" yaml:"hubEndpoint" koanf:"hubEndpoint"`
 
+	// ContainerHubEndpoint overrides HubEndpoint when injecting the Hub URL
+	// into agent containers. Use this when agents inside containers cannot
+	// reach the Hub at the same address as the broker (e.g. localhost vs
+	// host.containers.internal for local development).
+	ContainerHubEndpoint string `json:"containerHubEndpoint" yaml:"containerHubEndpoint" koanf:"containerHubEndpoint"`
+
 	// BrokerID is a unique identifier for this runtime broker (auto-generated if empty)
 	BrokerID string `json:"brokerId" yaml:"brokerId" koanf:"brokerId"`
 	// BrokerName is a human-readable name for this runtime broker
@@ -473,7 +479,8 @@ func envKeyToConfigKey(envKey string) string {
 		"writetimeout":      "writeTimeout",
 		"brokerid":          "brokerId",
 		"brokername":        "brokerName",
-		"hubendpoint":       "hubEndpoint",
+		"hubendpoint":            "hubEndpoint",
+		"containerhubendpoint":   "containerHubEndpoint",
 		"devmode":           "devMode",
 		"devtoken":          "devToken",
 		"devtokenfile":      "devTokenFile",
