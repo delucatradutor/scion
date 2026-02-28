@@ -391,6 +391,34 @@ func TestCreateAgentWithDebugMode(t *testing.T) {
 	}
 }
 
+// TestCreateAgentWithBrokerID tests that SCION_BROKER_ID env var is set from server config.
+func TestCreateAgentWithBrokerID(t *testing.T) {
+	srv, mgr := newTestServerWithEnvCapture()
+
+	body := `{"name": "broker-id-agent"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, w.Code, w.Body.String())
+	}
+
+	if mgr.lastEnv == nil {
+		t.Fatal("expected environment variables to be set, got nil")
+	}
+
+	if got := mgr.lastEnv["SCION_BROKER_ID"]; got != "test-broker-id" {
+		t.Errorf("expected SCION_BROKER_ID='test-broker-id', got %q", got)
+	}
+
+	if got := mgr.lastEnv["SCION_BROKER_NAME"]; got != "test-host" {
+		t.Errorf("expected SCION_BROKER_NAME='test-host', got %q", got)
+	}
+}
+
 // TestCreateAgentWithResolvedEnv tests that resolvedEnv from Hub is merged with config.Env.
 func TestCreateAgentWithResolvedEnv(t *testing.T) {
 	srv, mgr := newTestServerWithEnvCapture()
@@ -1768,6 +1796,34 @@ func TestStartAgentBrokerConfigUsedWhenNoGroveSettings(t *testing.T) {
 	// Without grove settings hub.endpoint, broker config should be used
 	if got := mgr.lastOpts.Env["SCION_HUB_ENDPOINT"]; got != "http://localhost:9810" {
 		t.Errorf("expected SCION_HUB_ENDPOINT='http://localhost:9810' from broker config, got %q", got)
+	}
+}
+
+// TestStartAgentBrokerIDEnv verifies that startAgent sets SCION_BROKER_ID from broker config.
+func TestStartAgentBrokerIDEnv(t *testing.T) {
+	srv, mgr := newTestServerWithProvisionCapture()
+
+	body := `{}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/test-agent/start", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusAccepted, w.Code, w.Body.String())
+	}
+
+	if !mgr.startCalled {
+		t.Fatal("expected Start to be called")
+	}
+
+	if got := mgr.lastOpts.Env["SCION_BROKER_ID"]; got != "test-broker-id" {
+		t.Errorf("expected SCION_BROKER_ID='test-broker-id', got %q", got)
+	}
+
+	if got := mgr.lastOpts.Env["SCION_BROKER_NAME"]; got != "test-host" {
+		t.Errorf("expected SCION_BROKER_NAME='test-host', got %q", got)
 	}
 }
 

@@ -392,6 +392,9 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	if s.config.BrokerName != "" {
 		env["SCION_BROKER_NAME"] = s.config.BrokerName
 	}
+	if s.config.BrokerID != "" {
+		env["SCION_BROKER_ID"] = s.config.BrokerID
+	}
 	if req.CreatorName != "" {
 		env["SCION_CREATOR"] = req.CreatorName
 	}
@@ -960,6 +963,9 @@ func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	if s.config.BrokerName != "" {
 		opts.Env["SCION_BROKER_NAME"] = s.config.BrokerName
+	}
+	if s.config.BrokerID != "" {
+		opts.Env["SCION_BROKER_ID"] = s.config.BrokerID
 	}
 	if s.config.Debug {
 		opts.Env["SCION_DEBUG"] = "1"
