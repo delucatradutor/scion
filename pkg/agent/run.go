@@ -233,6 +233,12 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		}
 	}
 
+	// Apply User from ScionConfig (higher priority than harness-config/settings)
+	if finalScionCfg != nil && finalScionCfg.User != "" {
+		unixUsername = finalScionCfg.User
+		util.Debugf("user resolution: from ScionConfig user=%s", unixUsername)
+	}
+
 	var warnings []string
 
 	if finalScionCfg != nil && finalScionCfg.Image != "" {

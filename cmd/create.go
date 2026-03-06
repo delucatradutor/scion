@@ -69,6 +69,20 @@ arguments are provided, an empty prompt.md is created for later editing.`,
 			return createAgentViaHub(hubCtx, agentName, task)
 		}
 
+		// Load inline config if --config was specified
+		var inlineCfg *api.ScionConfig
+		if inlineConfigPath != "" {
+			var inlineConfigDir string
+			var loadErr error
+			inlineCfg, inlineConfigDir, loadErr = loadInlineConfig(inlineConfigPath)
+			if loadErr != nil {
+				return loadErr
+			}
+			if loadErr := resolveInlineConfigContent(inlineCfg, inlineConfigDir); loadErr != nil {
+				return loadErr
+			}
+		}
+
 		// Local mode
 		effectiveProfile := profile
 		if effectiveProfile == "" {
@@ -78,16 +92,38 @@ arguments are provided, an empty prompt.md is created for later editing.`,
 		rt := runtime.GetRuntime(grovePath, effectiveProfile)
 		mgr := agent.NewManager(rt)
 
+		// Apply inline config overrides to CLI options
+		effectiveBranch := branch
+		effectiveTask := task
+		effectiveHarnessConfig := harnessConfigFlag
+		effectiveImage := agentImage
+
+		if inlineCfg != nil {
+			if effectiveBranch == "" && inlineCfg.Branch != "" {
+				effectiveBranch = inlineCfg.Branch
+			}
+			if effectiveTask == "" && inlineCfg.Task != "" {
+				effectiveTask = inlineCfg.Task
+			}
+			if effectiveHarnessConfig == "" && inlineCfg.HarnessConfig != "" {
+				effectiveHarnessConfig = inlineCfg.HarnessConfig
+			}
+			if effectiveImage == "" && inlineCfg.Image != "" {
+				effectiveImage = inlineCfg.Image
+			}
+		}
+
 		opts := api.StartOptions{
 			Name:          agentName,
-			Task:          task,
+			Task:          effectiveTask,
 			Template:      templateName,
 			Profile:       effectiveProfile,
-			HarnessConfig: harnessConfigFlag,
-			Image:         agentImage,
+			HarnessConfig: effectiveHarnessConfig,
+			Image:         effectiveImage,
 			GrovePath:     grovePath,
-			Branch:        branch,
+			Branch:        effectiveBranch,
 			Workspace:     workspace,
+			InlineConfig:  inlineCfg,
 		}
 
 		// Check if agent already exists (directory on disk or running container)
@@ -256,4 +292,7 @@ func init() {
 	createCmd.Flags().BoolVar(&uploadTemplate, "upload-template", false, "Automatically upload local template to Hub if not found")
 	createCmd.Flags().BoolVar(&noUpload, "no-upload", false, "Fail if template requires upload (never prompt)")
 	createCmd.Flags().StringVar(&templateScope, "template-scope", "grove", "Scope for uploaded template (global, grove, user)")
+
+	// Inline config flag
+	createCmd.Flags().StringVar(&inlineConfigPath, "config", "", "Path to inline agent config file (YAML/JSON), or '-' for stdin")
 }

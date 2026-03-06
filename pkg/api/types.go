@@ -271,10 +271,17 @@ type ScionConfig struct {
 
 	Secrets     []RequiredSecret     `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 
-	// Agnostic template fields (Phase 2)
+	// Agnostic template fields
 	AgentInstructions  string `json:"agent_instructions,omitempty" yaml:"agent_instructions,omitempty"`
 	SystemPrompt       string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 	DefaultHarnessConfig string `json:"default_harness_config,omitempty" yaml:"default_harness_config,omitempty"`
+
+	// Container user (absorbed from harness-config)
+	User string `json:"user,omitempty" yaml:"user,omitempty"`
+
+	// Agent operational parameters (creation-time record)
+	Task   string `json:"task,omitempty" yaml:"task,omitempty"`
+	Branch string `json:"branch,omitempty" yaml:"branch,omitempty"`
 
 	// Info contains persisted metadata about the agent
 	Info *AgentInfo `json:"-" yaml:"-"`
@@ -467,6 +474,7 @@ type StartOptions struct {
 	Workspace       string
 	GitClone          *GitCloneConfig // When set, skip workspace creation; sciontool clones inside container
 	TelemetryOverride *bool           // Explicit telemetry override from CLI flags (--enable-telemetry / --disable-telemetry)
+	InlineConfig      *ScionConfig    // Inline config from --config flag, merged over template config
 }
 
 type StatusEvent struct {

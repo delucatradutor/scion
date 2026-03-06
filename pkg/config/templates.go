@@ -671,6 +671,18 @@ func MergeScionConfig(base, override *api.ScionConfig) *api.ScionConfig {
 	if override.DefaultHarnessConfig != "" {
 		result.DefaultHarnessConfig = override.DefaultHarnessConfig
 	}
+	if override.User != "" {
+		result.User = override.User
+	}
+	if override.Task != "" {
+		result.Task = override.Task
+	}
+	if override.Branch != "" {
+		result.Branch = override.Branch
+	}
+	if override.MaxModelCalls > 0 {
+		result.MaxModelCalls = override.MaxModelCalls
+	}
 	if override.Info != nil {
 		if result.Info == nil {
 			infoCopy := *override.Info

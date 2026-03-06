@@ -118,7 +118,7 @@ func (m *AgentManager) Provision(ctx context.Context, opts api.StartOptions) (*a
 	if opts.GitClone != nil {
 		ctx = api.ContextWithGitClone(ctx, opts.GitClone)
 	}
-	agentDir, _, _, cfg, err := GetAgent(ctx, opts.Name, opts.Template, opts.Image, opts.HarnessConfig, opts.GrovePath, opts.Profile, "created", opts.Branch, opts.Workspace)
+	agentDir, _, _, cfg, err := GetAgent(ctx, opts.Name, opts.Template, opts.Image, opts.HarnessConfig, opts.GrovePath, opts.Profile, "created", opts.Branch, opts.Workspace, opts.InlineConfig)
 	if err == nil {
 		_ = UpdateAgentConfig(opts.Name, opts.GrovePath, "created", m.Runtime.Name(), opts.Profile)
 	}
@@ -146,7 +146,7 @@ func (m *AgentManager) Provision(ctx context.Context, opts api.StartOptions) (*a
 	return cfg, nil
 }
 
-func ProvisionAgent(ctx context.Context, agentName string, templateName string, agentImage string, harnessConfig string, grovePath string, profileName string, optionalStatus string, branch string, workspace string) (string, string, *api.ScionConfig, error) {
+func ProvisionAgent(ctx context.Context, agentName string, templateName string, agentImage string, harnessConfig string, grovePath string, profileName string, optionalStatus string, branch string, workspace string, inlineConfig ...*api.ScionConfig) (string, string, *api.ScionConfig, error) {
 	// 1. Prepare agent directories
 	projectDir, err := config.GetResolvedProjectDir(grovePath)
 	if err != nil {
@@ -305,6 +305,13 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 		finalScionCfg = config.MergeScionConfig(finalScionCfg, tplCfg)
 	}
 
+	// 2a-inline. Merge inline config over template config (if provided)
+	var inlineCfg *api.ScionConfig
+	if len(inlineConfig) > 0 && inlineConfig[0] != nil {
+		inlineCfg = inlineConfig[0]
+		finalScionCfg = config.MergeScionConfig(finalScionCfg, inlineCfg)
+	}
+
 	// 2b. Resolve harness-config name (full chain)
 	harnessConfigName := harnessConfig // CLI --harness-config flag (highest priority)
 	hcSource := "cli-flag"
@@ -401,6 +408,12 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 
 	// Step 3: Inject agent instructions
 	h := harness.New(finalScionCfg.Harness)
+
+	// Determine whether inline config provided content directly (already resolved).
+	// If so, we skip template-based file resolution for that field.
+	inlineProvidedAgentInstructions := inlineCfg != nil && inlineCfg.AgentInstructions != ""
+	inlineProvidedSystemPrompt := inlineCfg != nil && inlineCfg.SystemPrompt != ""
+
 	if len(chain) > 0 {
 		lastTpl := chain[len(chain)-1]
 
@@ -418,10 +431,18 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 		}
 
 		if finalScionCfg.AgentInstructions != "" {
-			util.Debugf("ProvisionAgent: resolving agent_instructions=%q from template %s", finalScionCfg.AgentInstructions, lastTpl.Path)
-			content, err := lastTpl.ResolveContent(finalScionCfg.AgentInstructions)
-			if err != nil {
-				return "", "", nil, fmt.Errorf("failed to resolve agent_instructions: %w", err)
+			var content []byte
+			if inlineProvidedAgentInstructions {
+				// Inline config already has resolved content — use it directly
+				content = []byte(finalScionCfg.AgentInstructions)
+				util.Debugf("ProvisionAgent: using inline agent_instructions (%d bytes)", len(content))
+			} else {
+				util.Debugf("ProvisionAgent: resolving agent_instructions=%q from template %s", finalScionCfg.AgentInstructions, lastTpl.Path)
+				var err error
+				content, err = lastTpl.ResolveContent(finalScionCfg.AgentInstructions)
+				if err != nil {
+					return "", "", nil, fmt.Errorf("failed to resolve agent_instructions: %w", err)
+				}
 			}
 			if content != nil {
 				util.Debugf("ProvisionAgent: injecting agent instructions (%d bytes) into %s", len(content), agentHome)
@@ -446,16 +467,40 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 		}
 
 		if finalScionCfg.SystemPrompt != "" {
-			util.Debugf("ProvisionAgent: resolving system_prompt=%q from template %s", finalScionCfg.SystemPrompt, lastTpl.Path)
-			content, err := lastTpl.ResolveContent(finalScionCfg.SystemPrompt)
-			if err != nil {
-				return "", "", nil, fmt.Errorf("failed to resolve system_prompt: %w", err)
+			var content []byte
+			if inlineProvidedSystemPrompt {
+				// Inline config already has resolved content — use it directly
+				content = []byte(finalScionCfg.SystemPrompt)
+				util.Debugf("ProvisionAgent: using inline system_prompt (%d bytes)", len(content))
+			} else {
+				util.Debugf("ProvisionAgent: resolving system_prompt=%q from template %s", finalScionCfg.SystemPrompt, lastTpl.Path)
+				var err error
+				content, err = lastTpl.ResolveContent(finalScionCfg.SystemPrompt)
+				if err != nil {
+					return "", "", nil, fmt.Errorf("failed to resolve system_prompt: %w", err)
+				}
 			}
 			if content != nil {
 				util.Debugf("ProvisionAgent: injecting system prompt (%d bytes) into %s", len(content), agentHome)
 				if err := h.InjectSystemPrompt(agentHome, content); err != nil {
 					return "", "", nil, fmt.Errorf("failed to inject system prompt: %w", err)
 				}
+			}
+		}
+	} else if inlineCfg != nil {
+		// No template chain, but inline config may have content fields
+		if finalScionCfg.AgentInstructions != "" {
+			content := []byte(finalScionCfg.AgentInstructions)
+			util.Debugf("ProvisionAgent: injecting inline agent_instructions (%d bytes, no template)", len(content))
+			if err := h.InjectAgentInstructions(agentHome, content); err != nil {
+				return "", "", nil, fmt.Errorf("failed to inject agent instructions: %w", err)
+			}
+		}
+		if finalScionCfg.SystemPrompt != "" {
+			content := []byte(finalScionCfg.SystemPrompt)
+			util.Debugf("ProvisionAgent: injecting inline system_prompt (%d bytes, no template)", len(content))
+			if err := h.InjectSystemPrompt(agentHome, content); err != nil {
+				return "", "", nil, fmt.Errorf("failed to inject system prompt: %w", err)
 			}
 		}
 	}
@@ -713,7 +758,7 @@ func UpdateAgentDeletedAt(agentName string, grovePath string, deletedAt time.Tim
 	return os.WriteFile(agentInfoPath, newData, 0644)
 }
 
-func GetAgent(ctx context.Context, agentName string, templateName string, agentImage string, harnessConfig string, grovePath string, profileName string, optionalStatus string, branch string, workspace string) (string, string, string, *api.ScionConfig, error) {
+func GetAgent(ctx context.Context, agentName string, templateName string, agentImage string, harnessConfig string, grovePath string, profileName string, optionalStatus string, branch string, workspace string, inlineConfig ...*api.ScionConfig) (string, string, string, *api.ScionConfig, error) {
 	projectDir, err := config.GetResolvedProjectDir(grovePath)
 	if err != nil {
 		return "", "", "", nil, err
@@ -760,7 +805,11 @@ func GetAgent(ctx context.Context, agentName string, templateName string, agentI
 			templateName = defaultTemplate
 		}
 		util.Debugf("GetAgent: agent dir does not exist, provisioning with template=%q", templateName)
-		home, ws, cfg, err := ProvisionAgent(ctx, agentName, templateName, agentImage, harnessConfig, grovePath, profileName, optionalStatus, branch, workspace)
+		var ic *api.ScionConfig
+		if len(inlineConfig) > 0 {
+			ic = inlineConfig[0]
+		}
+		home, ws, cfg, err := ProvisionAgent(ctx, agentName, templateName, agentImage, harnessConfig, grovePath, profileName, optionalStatus, branch, workspace, ic)
 		if err != nil {
 			util.Debugf("GetAgent: ProvisionAgent failed: %v", err)
 		} else {

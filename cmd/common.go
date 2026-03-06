@@ -17,8 +17,10 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -41,6 +43,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/wsclient"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 // readSecretFunc reads a password/secret from a file descriptor with echo disabled.
@@ -68,7 +71,84 @@ var (
 	notify            bool
 	enableTelemetry   bool
 	disableTelemetry  bool
+	inlineConfigPath  string
 )
+
+// loadInlineConfig loads a ScionConfig from the --config flag path.
+// If path is "-", reads from stdin. Supports YAML and JSON formats.
+// Returns (nil, nil) if no inline config path is set.
+func loadInlineConfig(path string) (*api.ScionConfig, string, error) {
+	if path == "" {
+		return nil, "", nil
+	}
+
+	var data []byte
+	var configDir string
+	var err error
+
+	if path == "-" {
+		data, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to read config from stdin: %w", err)
+		}
+		// When reading from stdin, use CWD as the config dir for relative file:// URIs
+		configDir, _ = os.Getwd()
+	} else {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to resolve config path: %w", err)
+		}
+		data, err = os.ReadFile(absPath)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to read config file %s: %w", absPath, err)
+		}
+		configDir = filepath.Dir(absPath)
+	}
+
+	if len(data) == 0 {
+		return nil, "", fmt.Errorf("config file is empty")
+	}
+
+	var cfg api.ScionConfig
+
+	// Try JSON first (if it starts with '{'), otherwise YAML
+	trimmed := strings.TrimSpace(string(data))
+	if strings.HasPrefix(trimmed, "{") {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, "", fmt.Errorf("failed to parse config as JSON: %w", err)
+		}
+	} else {
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, "", fmt.Errorf("failed to parse config as YAML: %w", err)
+		}
+	}
+
+	// Store the config directory for file:// URI resolution
+	cfg.ConfigDir = configDir
+
+	return &cfg, configDir, nil
+}
+
+// resolveInlineConfigContent resolves file:// URIs in system_prompt and
+// agent_instructions fields of an inline config. The configDir is used
+// as the base for relative file:// URIs.
+func resolveInlineConfigContent(cfg *api.ScionConfig, configDir string) error {
+	if cfg.SystemPrompt != "" {
+		resolved, err := api.ResolveContent(cfg.SystemPrompt, configDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve system_prompt: %w", err)
+		}
+		cfg.SystemPrompt = resolved
+	}
+	if cfg.AgentInstructions != "" {
+		resolved, err := api.ResolveContent(cfg.AgentInstructions, configDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve agent_instructions: %w", err)
+		}
+		cfg.AgentInstructions = resolved
+	}
+	return nil
+}
 
 // HubContext holds the context for Hub operations.
 type HubContext struct {
@@ -303,6 +383,21 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		return fmt.Errorf("--notify requires Hub mode. Connect to a Hub with 'scion hub status <endpoint>'")
 	}
 
+	// Load inline config if --config was specified
+	var inlineCfg *api.ScionConfig
+	var inlineConfigDir string
+	if inlineConfigPath != "" {
+		var err error
+		inlineCfg, inlineConfigDir, err = loadInlineConfig(inlineConfigPath)
+		if err != nil {
+			return err
+		}
+		// Resolve file:// URIs in content fields
+		if err := resolveInlineConfigContent(inlineCfg, inlineConfigDir); err != nil {
+			return err
+		}
+	}
+
 	// Local mode
 	effectiveProfile := profile
 	if effectiveProfile == "" {
@@ -339,20 +434,45 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		detached = &val
 	}
 
+	// Apply inline config overrides to CLI options
+	effectiveBranch := branch
+	effectiveTask := strings.TrimSpace(task)
+	effectiveHarnessConfig := harnessConfigFlag
+	effectiveHarnessAuth := harnessAuthFlag
+
+	if inlineCfg != nil {
+		if effectiveBranch == "" && inlineCfg.Branch != "" {
+			effectiveBranch = inlineCfg.Branch
+		}
+		if effectiveTask == "" && inlineCfg.Task != "" {
+			effectiveTask = inlineCfg.Task
+		}
+		if effectiveHarnessConfig == "" && inlineCfg.HarnessConfig != "" {
+			effectiveHarnessConfig = inlineCfg.HarnessConfig
+		}
+		if effectiveHarnessAuth == "" && inlineCfg.AuthSelectedType != "" {
+			effectiveHarnessAuth = inlineCfg.AuthSelectedType
+		}
+		if resolvedImage == "" && inlineCfg.Image != "" {
+			resolvedImage = inlineCfg.Image
+		}
+	}
+
 	opts := api.StartOptions{
 		Name:          agentName,
-		Task:          strings.TrimSpace(task),
+		Task:          effectiveTask,
 		Template:      templateName,
 		Profile:       effectiveProfile,
-		HarnessConfig: harnessConfigFlag,
-		HarnessAuth:   harnessAuthFlag,
+		HarnessConfig: effectiveHarnessConfig,
+		HarnessAuth:   effectiveHarnessAuth,
 		Image:         resolvedImage,
 		GrovePath:     grovePath,
 		Resume:        resume,
 		Detached:      detached,
 		NoAuth:        noAuth,
-		Branch:        branch,
+		Branch:        effectiveBranch,
 		Workspace:     workspace,
+		InlineConfig:  inlineCfg,
 	}
 
 	// Apply telemetry override from CLI flags

@@ -826,6 +826,114 @@ func TestMergeScionConfig_TaskFlag(t *testing.T) {
 	})
 }
 
+func TestMergeScionConfig_InlineConfigFields(t *testing.T) {
+	t.Run("user override replaces base", func(t *testing.T) {
+		base := &api.ScionConfig{User: "root"}
+		override := &api.ScionConfig{User: "scion"}
+		got := MergeScionConfig(base, override)
+		if got.User != "scion" {
+			t.Errorf("expected User='scion', got %q", got.User)
+		}
+	})
+
+	t.Run("user empty override keeps base", func(t *testing.T) {
+		base := &api.ScionConfig{User: "scion"}
+		override := &api.ScionConfig{}
+		got := MergeScionConfig(base, override)
+		if got.User != "scion" {
+			t.Errorf("expected User='scion', got %q", got.User)
+		}
+	})
+
+	t.Run("task override replaces base", func(t *testing.T) {
+		base := &api.ScionConfig{Task: "old task"}
+		override := &api.ScionConfig{Task: "new task"}
+		got := MergeScionConfig(base, override)
+		if got.Task != "new task" {
+			t.Errorf("expected Task='new task', got %q", got.Task)
+		}
+	})
+
+	t.Run("task empty override keeps base", func(t *testing.T) {
+		base := &api.ScionConfig{Task: "existing task"}
+		override := &api.ScionConfig{}
+		got := MergeScionConfig(base, override)
+		if got.Task != "existing task" {
+			t.Errorf("expected Task='existing task', got %q", got.Task)
+		}
+	})
+
+	t.Run("branch override replaces base", func(t *testing.T) {
+		base := &api.ScionConfig{Branch: "main"}
+		override := &api.ScionConfig{Branch: "feature-branch"}
+		got := MergeScionConfig(base, override)
+		if got.Branch != "feature-branch" {
+			t.Errorf("expected Branch='feature-branch', got %q", got.Branch)
+		}
+	})
+
+	t.Run("branch empty override keeps base", func(t *testing.T) {
+		base := &api.ScionConfig{Branch: "develop"}
+		override := &api.ScionConfig{}
+		got := MergeScionConfig(base, override)
+		if got.Branch != "develop" {
+			t.Errorf("expected Branch='develop', got %q", got.Branch)
+		}
+	})
+
+	t.Run("max_model_calls override replaces base", func(t *testing.T) {
+		base := &api.ScionConfig{MaxModelCalls: 100}
+		override := &api.ScionConfig{MaxModelCalls: 200}
+		got := MergeScionConfig(base, override)
+		if got.MaxModelCalls != 200 {
+			t.Errorf("expected MaxModelCalls=200, got %d", got.MaxModelCalls)
+		}
+	})
+
+	t.Run("max_model_calls zero override keeps base", func(t *testing.T) {
+		base := &api.ScionConfig{MaxModelCalls: 150}
+		override := &api.ScionConfig{}
+		got := MergeScionConfig(base, override)
+		if got.MaxModelCalls != 150 {
+			t.Errorf("expected MaxModelCalls=150, got %d", got.MaxModelCalls)
+		}
+	})
+
+	t.Run("full inline config merge over template", func(t *testing.T) {
+		template := &api.ScionConfig{
+			Model:          "claude-sonnet-4-6",
+			MaxTurns:       100,
+			HarnessConfig:  "claude-default",
+			User:           "root",
+		}
+		inline := &api.ScionConfig{
+			Model:  "claude-opus-4-6",
+			Task:   "Review the code",
+			Branch: "review-branch",
+			User:   "scion",
+		}
+		got := MergeScionConfig(template, inline)
+		if got.Model != "claude-opus-4-6" {
+			t.Errorf("expected Model='claude-opus-4-6', got %q", got.Model)
+		}
+		if got.MaxTurns != 100 {
+			t.Errorf("expected MaxTurns=100 (from template), got %d", got.MaxTurns)
+		}
+		if got.HarnessConfig != "claude-default" {
+			t.Errorf("expected HarnessConfig='claude-default' (from template), got %q", got.HarnessConfig)
+		}
+		if got.Task != "Review the code" {
+			t.Errorf("expected Task='Review the code', got %q", got.Task)
+		}
+		if got.Branch != "review-branch" {
+			t.Errorf("expected Branch='review-branch', got %q", got.Branch)
+		}
+		if got.User != "scion" {
+			t.Errorf("expected User='scion', got %q", got.User)
+		}
+	})
+}
+
 func boolP(b bool) *bool    { return &b }
 func float64P(f float64) *float64 { return &f }
 
