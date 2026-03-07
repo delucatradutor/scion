@@ -892,13 +892,18 @@ If a new CLI sends a `StructuredMessage` to an old Hub:
 - ✅ `ChannelRegistry` provides filter support: `filter_types` (message type whitelist) and `filter_urgent_only` (urgent-only gating)
 - ✅ Channel dispatch is fire-and-forget — delivery failures logged but do not block notification pipeline
 
-### Phase 5: Message Broker Adapter Layer
-- Define `MessageBroker` interface
-- Implement `InProcessBroker` using existing `ChannelEventPublisher` patterns
-- Refactor broadcast to use broker publish instead of CLI-side fan-out
-- Add Hub subscription proxy for agent message topics
-- Wire broker into Hub server initialization
-- Add Hub-level configuration for broker adapter selection with per-grove enablement
+### Phase 5: Message Broker Adapter Layer ✅ COMPLETE
+- ✅ Define `MessageBroker` interface (`pkg/broker/broker.go`) with `Publish`, `Subscribe`, `Close` methods and NATS-style topic pattern matching
+- ✅ Implement `InProcessBroker` (`pkg/broker/inprocess.go`) using Go channels with per-subscriber dispatch goroutines, non-blocking publish, and backpressure handling
+- ✅ Refactor CLI broadcast to use Hub's `POST /groves/{id}/broadcast` endpoint (single API call) instead of client-side N-request fan-out
+- ✅ Add `MessageBrokerProxy` (`pkg/hub/messagebroker.go`) — Hub subscription proxy that subscribes on behalf of agents, handles broadcast fan-out to running agents, and delivers via existing `DispatchAgentMessage` path
+- ✅ Wire broker into Hub server initialization (`cmd/server.go`) with `StartMessageBroker` lifecycle method and graceful shutdown in `CleanupResources`
+- ✅ Add Hub-level configuration for broker adapter selection (`V1MessageBrokerConfig` in `pkg/config/settings_v1.go` under `server.message_broker` with `enabled` and `type` fields)
+- ✅ `BroadcastMessage` client method on `AgentService` (`pkg/hubclient/agents.go`) for grove-scoped broadcasts
+- ✅ `handleGroveBroadcast` handler (`pkg/hub/handlers.go`) with direct fan-out fallback when no broker is configured
+- ✅ Topic helpers: `TopicAgentMessages`, `TopicGroveBroadcast`, `TopicGlobalBroadcast`, `TopicAllAgentMessages`
+- ✅ Broadcast skips sender agent to prevent echo
+- ⏳ Per-grove broker enablement (deferred — all groves use the same broker; per-grove selection needed only when external adapters are added in Phase 6)
 
 ### Phase 6: External Broker Adapters
 - Implement NATS adapter
@@ -955,7 +960,13 @@ If a new CLI sends a `StructuredMessage` to an old Hub:
 - `pkg/hub/channels_test.go` - Tests for channel registry, webhook, and Slack channels
 - `pkg/config/settings_v1.go` - `V1NotificationChannelConfig` on `V1ServerConfig.NotificationChannels`
 
-### Message Broker (New)
-- `pkg/broker/broker.go` (new) - Broker interface
-- `pkg/broker/inprocess.go` (new) - InProcess adapter
-- `pkg/broker/nats.go` (new) - NATS adapter (Phase 6)
+### Message Broker
+- `pkg/broker/broker.go` - `MessageBroker` interface, `Subscription` interface, topic helper functions
+- `pkg/broker/inprocess.go` - `InProcessBroker` adapter using Go channels with NATS-style pattern matching
+- `pkg/broker/errors.go` - `ErrBrokerClosed` sentinel error
+- `pkg/broker/broker_test.go` - Tests for InProcessBroker, pattern matching, topic helpers
+- `pkg/hub/messagebroker.go` - `MessageBrokerProxy` — Hub subscription proxy for agent message routing and broadcast fan-out
+- `pkg/hub/messagebroker_test.go` - Tests for proxy direct messages, broadcasts, sender exclusion, grove subscription setup
+- `pkg/config/settings_v1.go` - `V1MessageBrokerConfig` on `V1ServerConfig.MessageBroker`
+- `pkg/broker/nats.go` (future) - NATS adapter (Phase 6)
+- `pkg/broker/redis.go` (future) - Redis Streams adapter (Phase 6)
