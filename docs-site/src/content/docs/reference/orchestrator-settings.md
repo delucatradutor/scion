@@ -34,6 +34,7 @@ Files without `schema_version` are treated as legacy format. Run `scion config m
 | `schema_version` | string | **Required**. Must be `"1"`. |
 | `active_profile` | string | The name of the profile to use by default (e.g., `local`, `remote`). |
 | `default_template` | string | The default template to use when creating agents (e.g., `gemini`, `claude`). |
+| `image_registry` | string | Registry prefix for all standard harness images. Rewrites the registry portion of `scion-*` images (e.g., `ghcr.io/myorg`). See [Building Custom Images](/guides/custom-images/). |
 
 ## CLI Configuration (`cli`)
 
@@ -183,6 +184,7 @@ profiles:
 | `runtime` | string | **Required**. Name of a runtime defined in `runtimes`. |
 | `default_template` | string | Default template for agents created under this profile. |
 | `default_harness_config` | string | Default harness config to use. |
+| `image_registry` | string | Profile-level registry override. Takes precedence over the top-level `image_registry`. |
 | `env` | map | Environment variables merged into the runtime environment. |
 | `harness_overrides` | map | Per-harness-config overrides. Keys match `harness_configs` names. |
 | `secrets` | list | Required secrets for agents created under this profile. |

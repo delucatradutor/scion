@@ -245,9 +245,12 @@ This writes to `~/.scion/settings.yaml` (global) or `.scion/settings.yaml` (grov
    - `workflow_dispatch` for manual triggers.
    - `workflow_call` for use as a reusable workflow in forks.
 
-### Phase 4: Documentation
+### Phase 4: Documentation ✅ DONE
 
-10. **Add onboarding guide** to project docs/README covering both paths.
+10. **Add onboarding guide** to project docs/README covering both paths. ✅
+    - Added `docs-site/src/content/docs/guides/custom-images.md` covering Docker, GitHub Actions, and Cloud Build paths.
+    - Added `image_registry` to orchestrator-settings reference (top-level and profile-level).
+    - Registered in sidebar under Developer Guide > How To.
 
 ---
 

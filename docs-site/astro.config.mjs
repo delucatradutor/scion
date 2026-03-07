@@ -62,6 +62,7 @@ export default defineConfig({
 							label: 'How To',
 							items: [
 								{ label: 'Templates & Harnesses', slug: 'guides/templates' },
+								{ label: 'Custom Images', slug: 'guides/custom-images' },
 								{ label: 'Agent Credentials', slug: 'guides/agent-credentials' },
 								{ label: 'Tmux Sessions', slug: 'guides/tmux' },
 							],
