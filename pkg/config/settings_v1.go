@@ -141,6 +141,45 @@ func (vs *VersionedSettings) IsHubLocalOnly() bool {
 	return vs.Hub != nil && vs.Hub.LocalOnly != nil && *vs.Hub.LocalOnly
 }
 
+// ResolveImageRegistry returns the effective image_registry for the given profile.
+// Profile-level image_registry takes precedence over the top-level setting.
+func (vs *VersionedSettings) ResolveImageRegistry(profileName string) string {
+	if profileName == "" {
+		profileName = vs.ActiveProfile
+	}
+	if profile, ok := vs.Profiles[profileName]; ok && profile.ImageRegistry != "" {
+		return profile.ImageRegistry
+	}
+	return vs.ImageRegistry
+}
+
+// RewriteImageRegistry replaces the registry prefix of a container image reference
+// with newRegistry. Only images whose basename starts with "scion-" are rewritten.
+// If newRegistry is empty, the original image is returned unchanged.
+func RewriteImageRegistry(fullImage, newRegistry string) string {
+	if newRegistry == "" || fullImage == "" {
+		return fullImage
+	}
+
+	// Extract the basename (last path component, e.g. "scion-claude:latest")
+	lastSlash := strings.LastIndex(fullImage, "/")
+	var basename string
+	if lastSlash >= 0 {
+		basename = fullImage[lastSlash+1:]
+	} else {
+		basename = fullImage
+	}
+
+	// Only rewrite images following the scion naming convention
+	if !strings.HasPrefix(basename, "scion-") {
+		return fullImage
+	}
+
+	// Strip trailing slash from registry
+	registry := strings.TrimRight(newRegistry, "/")
+	return registry + "/" + basename
+}
+
 // PrintDeprecationWarnings prints deprecation warnings to stderr.
 func PrintDeprecationWarnings(warnings []string) {
 	for _, w := range warnings {
@@ -159,6 +198,7 @@ type VersionedSettings struct {
 	CLI             *V1CLIConfig                    `json:"cli,omitempty" yaml:"cli,omitempty" koanf:"cli"`
 	Telemetry       *V1TelemetryConfig              `json:"telemetry,omitempty" yaml:"telemetry,omitempty" koanf:"telemetry"`
 	Runtimes        map[string]V1RuntimeConfig      `json:"runtimes,omitempty" yaml:"runtimes,omitempty" koanf:"runtimes"`
+	ImageRegistry   string                          `json:"image_registry,omitempty" yaml:"image_registry,omitempty" koanf:"image_registry"`
 	HarnessConfigs  map[string]HarnessConfigEntry   `json:"harness_configs,omitempty" yaml:"harness_configs,omitempty" koanf:"harness_configs"`
 	Profiles        map[string]V1ProfileConfig      `json:"profiles,omitempty" yaml:"profiles,omitempty" koanf:"profiles"`
 }
@@ -404,6 +444,7 @@ type V1ProfileConfig struct {
 	Runtime              string                       `json:"runtime" yaml:"runtime" koanf:"runtime"`
 	DefaultTemplate      string                       `json:"default_template,omitempty" yaml:"default_template,omitempty" koanf:"default_template"`
 	DefaultHarnessConfig string                       `json:"default_harness_config,omitempty" yaml:"default_harness_config,omitempty" koanf:"default_harness_config"`
+	ImageRegistry        string                       `json:"image_registry,omitempty" yaml:"image_registry,omitempty" koanf:"image_registry"`
 	Env                  map[string]string            `json:"env,omitempty" yaml:"env,omitempty" koanf:"env"`
 	Volumes              []api.VolumeMount            `json:"volumes,omitempty" yaml:"volumes,omitempty" koanf:"volumes"`
 	Resources            *api.ResourceSpec            `json:"resources,omitempty" yaml:"resources,omitempty" koanf:"resources"`
@@ -1358,6 +1399,8 @@ func UpdateVersionedSetting(dir string, key string, value string) error {
 		vs.ActiveProfile = value
 	case "default_template":
 		vs.DefaultTemplate = value
+	case "image_registry":
+		vs.ImageRegistry = value
 	case "cli.autohelp":
 		if vs.CLI == nil {
 			vs.CLI = &V1CLIConfig{}

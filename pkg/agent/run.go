@@ -193,6 +193,20 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		}
 	}
 
+	// Apply image_registry rewrite to the on-disk harness-config image.
+	// This is the lowest-priority override: any explicit image from settings
+	// harness_overrides, template, or --image flag will take full precedence.
+	if settings != nil && resolvedImage != "" {
+		imageRegistry := settings.ResolveImageRegistry(opts.Profile)
+		if imageRegistry != "" {
+			rewritten := config.RewriteImageRegistry(resolvedImage, imageRegistry)
+			if rewritten != resolvedImage {
+				util.Debugf("image resolution: image_registry rewrite %s -> %s", resolvedImage, rewritten)
+				resolvedImage = rewritten
+			}
+		}
+	}
+
 	if settings != nil && harnessConfigName != "" {
 		hConfig, err := settings.ResolveHarnessConfig(opts.Profile, harnessConfigName)
 		if err == nil {

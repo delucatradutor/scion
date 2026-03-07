@@ -37,6 +37,13 @@
       "x-scope": "any",
       "x-since": "1"
     },
+    "image_registry": {
+      "type": "string",
+      "description": "Container image registry prefix. When set, replaces the registry portion of any scion-* harness-config image at resolution time.",
+      "x-env-var": "SCION_IMAGE_REGISTRY",
+      "x-scope": "any",
+      "x-since": "1"
+    },
     "server": {
       "type": "object",
       "description": "Server/broker process configuration. Global-only.",
@@ -256,6 +263,10 @@
         "default_harness_config": {
           "type": "string",
           "description": "Default harness config name for agents under this profile."
+        },
+        "image_registry": {
+          "type": "string",
+          "description": "Container image registry prefix for this profile. Overrides the top-level image_registry."
         },
         "env": {
           "type": "object",

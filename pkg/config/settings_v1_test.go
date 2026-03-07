@@ -3077,6 +3077,207 @@ telemetry:
 	assert.Equal(t, "https://yaml-endpoint.example.com", vs.Telemetry.Cloud.Endpoint)
 }
 
+// --- RewriteImageRegistry tests ---
+
+func TestRewriteImageRegistry(t *testing.T) {
+	tests := []struct {
+		name        string
+		fullImage   string
+		newRegistry string
+		want        string
+	}{
+		{
+			name:        "rewrite scion image",
+			fullImage:   "us-central1-docker.pkg.dev/ptone-misc/public-docker/scion-claude:latest",
+			newRegistry: "ghcr.io/myorg",
+			want:        "ghcr.io/myorg/scion-claude:latest",
+		},
+		{
+			name:        "rewrite with trailing slash",
+			fullImage:   "us-central1-docker.pkg.dev/ptone-misc/public-docker/scion-gemini:latest",
+			newRegistry: "ghcr.io/myorg/",
+			want:        "ghcr.io/myorg/scion-gemini:latest",
+		},
+		{
+			name:        "do not rewrite non-scion image",
+			fullImage:   "ubuntu:22.04",
+			newRegistry: "ghcr.io/myorg",
+			want:        "ubuntu:22.04",
+		},
+		{
+			name:        "do not rewrite custom registry image",
+			fullImage:   "myregistry.io/custom-agent:v1",
+			newRegistry: "ghcr.io/myorg",
+			want:        "myregistry.io/custom-agent:v1",
+		},
+		{
+			name:        "empty registry returns original",
+			fullImage:   "us-central1-docker.pkg.dev/ptone-misc/public-docker/scion-claude:latest",
+			newRegistry: "",
+			want:        "us-central1-docker.pkg.dev/ptone-misc/public-docker/scion-claude:latest",
+		},
+		{
+			name:        "empty image returns empty",
+			fullImage:   "",
+			newRegistry: "ghcr.io/myorg",
+			want:        "",
+		},
+		{
+			name:        "scion-base image is rewritten",
+			fullImage:   "us-central1-docker.pkg.dev/ptone-misc/public-docker/scion-base:v2",
+			newRegistry: "docker.io/myuser",
+			want:        "docker.io/myuser/scion-base:v2",
+		},
+		{
+			name:        "preserves tag",
+			fullImage:   "us-central1-docker.pkg.dev/ptone-misc/public-docker/scion-opencode:sha-abc123",
+			newRegistry: "ghcr.io/myorg",
+			want:        "ghcr.io/myorg/scion-opencode:sha-abc123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := RewriteImageRegistry(tt.fullImage, tt.newRegistry)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestResolveImageRegistry(t *testing.T) {
+	tests := []struct {
+		name        string
+		settings    *VersionedSettings
+		profileName string
+		want        string
+	}{
+		{
+			name: "top-level image_registry",
+			settings: &VersionedSettings{
+				ActiveProfile: "local",
+				ImageRegistry: "ghcr.io/myorg",
+				Profiles: map[string]V1ProfileConfig{
+					"local": {Runtime: "docker"},
+				},
+			},
+			profileName: "local",
+			want:        "ghcr.io/myorg",
+		},
+		{
+			name: "profile-level overrides top-level",
+			settings: &VersionedSettings{
+				ActiveProfile: "staging",
+				ImageRegistry: "ghcr.io/myorg",
+				Profiles: map[string]V1ProfileConfig{
+					"staging": {
+						Runtime:       "docker",
+						ImageRegistry: "us-central1-docker.pkg.dev/myproject/staging",
+					},
+				},
+			},
+			profileName: "staging",
+			want:        "us-central1-docker.pkg.dev/myproject/staging",
+		},
+		{
+			name: "profile without image_registry falls back to top-level",
+			settings: &VersionedSettings{
+				ActiveProfile: "local",
+				ImageRegistry: "ghcr.io/myorg",
+				Profiles: map[string]V1ProfileConfig{
+					"local": {Runtime: "docker"},
+				},
+			},
+			profileName: "local",
+			want:        "ghcr.io/myorg",
+		},
+		{
+			name: "empty profile name uses active profile",
+			settings: &VersionedSettings{
+				ActiveProfile: "prod",
+				ImageRegistry: "ghcr.io/default",
+				Profiles: map[string]V1ProfileConfig{
+					"prod": {
+						Runtime:       "docker",
+						ImageRegistry: "ghcr.io/prod",
+					},
+				},
+			},
+			profileName: "",
+			want:        "ghcr.io/prod",
+		},
+		{
+			name: "no image_registry configured",
+			settings: &VersionedSettings{
+				ActiveProfile: "local",
+				Profiles: map[string]V1ProfileConfig{
+					"local": {Runtime: "docker"},
+				},
+			},
+			profileName: "local",
+			want:        "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.settings.ResolveImageRegistry(tt.profileName)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestImageRegistryYAMLRoundTrip(t *testing.T) {
+	vs := &VersionedSettings{
+		SchemaVersion: "1",
+		ActiveProfile: "local",
+		ImageRegistry: "ghcr.io/myorg",
+		Profiles: map[string]V1ProfileConfig{
+			"local": {
+				Runtime: "docker",
+			},
+			"staging": {
+				Runtime:       "docker",
+				ImageRegistry: "us-central1-docker.pkg.dev/myproject/staging",
+			},
+		},
+		HarnessConfigs: map[string]HarnessConfigEntry{},
+		Runtimes:       map[string]V1RuntimeConfig{},
+	}
+
+	data, err := yaml.Marshal(vs)
+	require.NoError(t, err)
+
+	assert.Contains(t, string(data), "image_registry: ghcr.io/myorg")
+	assert.Contains(t, string(data), "image_registry: us-central1-docker.pkg.dev/myproject/staging")
+
+	var roundTripped VersionedSettings
+	err = yaml.Unmarshal(data, &roundTripped)
+	require.NoError(t, err)
+	assert.Equal(t, "ghcr.io/myorg", roundTripped.ImageRegistry)
+	assert.Equal(t, "us-central1-docker.pkg.dev/myproject/staging", roundTripped.Profiles["staging"].ImageRegistry)
+	assert.Empty(t, roundTripped.Profiles["local"].ImageRegistry)
+}
+
+func TestUpdateVersionedSetting_ImageRegistry(t *testing.T) {
+	dir := t.TempDir()
+	initial := &VersionedSettings{
+		SchemaVersion: "1",
+		ActiveProfile: "local",
+		Profiles:       map[string]V1ProfileConfig{},
+		HarnessConfigs: map[string]HarnessConfigEntry{},
+		Runtimes:       map[string]V1RuntimeConfig{},
+	}
+	err := SaveVersionedSettings(dir, initial)
+	require.NoError(t, err)
+
+	err = UpdateVersionedSetting(dir, "image_registry", "ghcr.io/myorg")
+	require.NoError(t, err)
+
+	loaded, err := LoadSingleFileVersioned(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "ghcr.io/myorg", loaded.ImageRegistry)
+}
+
 // --- Helper ---
 
 func boolPtr(b bool) *bool {
