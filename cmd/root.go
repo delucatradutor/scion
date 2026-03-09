@@ -126,12 +126,17 @@ return an error instead of blocking.`,
 
 		// Check image_registry is configured for commands that need it.
 		// Skip for config commands (users need those to set the registry).
+		// Skip in hub context (inside a container, the agent is already
+		// running — image_registry is not needed).
 		requiresRegistry := requiresGrove
 		switch cmdName {
 		case "config", "doctor":
 			requiresRegistry = false
 		}
 		if parentName == "config" {
+			requiresRegistry = false
+		}
+		if requiresRegistry && config.IsHubContext() {
 			requiresRegistry = false
 		}
 		if requiresRegistry {
