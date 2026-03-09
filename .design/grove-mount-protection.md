@@ -233,7 +233,7 @@ Move agent homes out of the repo `.scion/` directory for git-based groves while 
 - Updated listing/reconciliation logic
 - Tests for split storage lifecycle
 
-### Phase 4: Grove Management Commands
+### Phase 4: Grove Management Commands ✅ COMPLETE
 
 Add CLI commands for grove lifecycle management.
 

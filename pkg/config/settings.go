@@ -585,6 +585,8 @@ func UpdateSetting(grovePath string, key string, value string, global bool) erro
 		current.ActiveProfile = value
 	case "default_template":
 		current.DefaultTemplate = value
+	case "workspace_path":
+		current.WorkspacePath = value
 	case "bucket.provider":
 		if current.Bucket == nil {
 			current.Bucket = &BucketConfig{}

@@ -85,8 +85,8 @@ return an error instead of blocking.`,
 			// Root command itself doesn't require grove
 			requiresGrove = false
 		}
-		// Also check if parent is grove and command is init
-		if parentName == "grove" && cmdName == "init" {
+		// Grove subcommands operate on all groves, not just the current one
+		if parentName == "grove" {
 			requiresGrove = false
 		}
 
