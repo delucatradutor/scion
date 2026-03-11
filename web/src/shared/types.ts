@@ -335,6 +335,8 @@ export interface AgentAppliedConfig {
   attach?: boolean;
   workspace?: string;
   creatorName?: string;
+  templateId?: string;
+  templateHash?: string;
   inlineConfig?: AgentInlineConfig;
 }
 

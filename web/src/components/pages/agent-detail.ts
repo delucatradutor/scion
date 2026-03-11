@@ -1240,6 +1240,22 @@ export class ScionPageAgentDetail extends LitElement {
             <span class="info-label">Template</span>
             <span class="info-value">${agent.template}</span>
           </div>
+          ${cfg?.templateId
+            ? html`
+                <div class="info-item">
+                  <span class="info-label">Template ID</span>
+                  <span class="info-value mono">${cfg.templateId}</span>
+                </div>
+              `
+            : ''}
+          ${cfg?.templateHash
+            ? html`
+                <div class="info-item">
+                  <span class="info-label">Template Hash</span>
+                  <span class="info-value mono">${cfg.templateHash}</span>
+                </div>
+              `
+            : ''}
           ${harness
             ? html`
                 <div class="info-item">

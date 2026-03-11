@@ -101,9 +101,10 @@ func runTemplateList(cmd *cobra.Command, args []string) error {
 
 	if isJSONOutput() {
 		type templateEntry struct {
-			Name string `json:"name"`
-			Path string `json:"path,omitempty"`
-			ID   string `json:"id,omitempty"`
+			Name        string `json:"name"`
+			Path        string `json:"path,omitempty"`
+			ID          string `json:"id,omitempty"`
+			ContentHash string `json:"contentHash,omitempty"`
 		}
 		output := map[string]interface{}{}
 
@@ -131,14 +132,14 @@ func runTemplateList(cmd *cobra.Command, args []string) error {
 			if len(hubGlobal) > 0 {
 				entries := make([]templateEntry, len(hubGlobal))
 				for i, t := range hubGlobal {
-					entries[i] = templateEntry{Name: t.Name, ID: t.ID}
+					entries[i] = templateEntry{Name: t.Name, ID: t.ID, ContentHash: t.ContentHash}
 				}
 				hubSection["global"] = entries
 			}
 			if len(hubGrove) > 0 {
 				entries := make([]templateEntry, len(hubGrove))
 				for i, t := range hubGrove {
-					entries[i] = templateEntry{Name: t.Name, ID: t.ID}
+					entries[i] = templateEntry{Name: t.Name, ID: t.ID, ContentHash: t.ContentHash}
 				}
 				hubSection["grove"] = entries
 			}
@@ -237,9 +238,9 @@ func printTemplateListHubMode(w *tabwriter.Writer, localGlobal, localGrove []*co
 		fmt.Fprintln(w, "Hub Templates:")
 		if hasHubGlobal {
 			fmt.Fprintln(w, "  Global:")
-			fmt.Fprintln(w, "    NAME\tID")
+			fmt.Fprintln(w, "    NAME\tID\tHASH")
 			for _, t := range hubGlobal {
-				fmt.Fprintf(w, "    %s\t%s\n", t.Name, t.ID)
+				fmt.Fprintf(w, "    %s\t%s\t%s\n", t.Name, t.ID, truncateHash(t.ContentHash))
 			}
 		}
 		if hasHubGrove {
@@ -247,9 +248,9 @@ func printTemplateListHubMode(w *tabwriter.Writer, localGlobal, localGrove []*co
 				fmt.Fprintln(w)
 			}
 			fmt.Fprintln(w, "  Grove:")
-			fmt.Fprintln(w, "    NAME\tID")
+			fmt.Fprintln(w, "    NAME\tID\tHASH")
 			for _, t := range hubGrove {
-				fmt.Fprintf(w, "    %s\t%s\n", t.Name, t.ID)
+				fmt.Fprintf(w, "    %s\t%s\t%s\n", t.Name, t.ID, truncateHash(t.ContentHash))
 			}
 		}
 	}
