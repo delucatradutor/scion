@@ -825,12 +825,12 @@ export class ScionPageAgentCreate extends LitElement {
                   <label for="profile">Runtime Profile</label>
                   <sl-select
                     id="profile"
-                    placeholder="Select a profile..."
                     .value=${this.profile}
                     @sl-change=${(e: Event) => {
                       this.profile = (e.target as HTMLElement & { value: string }).value;
                     }}
                   >
+                    <sl-option value="">Use broker default</sl-option>
                     ${this.selectedBrokerProfiles.map(
                       (p) =>
                         html`<sl-option value=${p.name}>${p.name} (${p.type})</sl-option>`
