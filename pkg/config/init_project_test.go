@@ -33,8 +33,8 @@ func TestEnsureScionGitignore_AddsEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read .gitignore: %v", err)
 	}
-	if string(content) != ".scion/\n" {
-		t.Errorf("expected '.scion/\\n', got %q", string(content))
+	if string(content) != ".scion/agents/\n" {
+		t.Errorf("expected '.scion/agents/\\n', got %q", string(content))
 	}
 }
 
@@ -71,13 +71,13 @@ func TestEnsureScionGitignore_AppendsToExisting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read .gitignore: %v", err)
 	}
-	if string(content) != "node_modules/\n.scion/\n" {
-		t.Errorf("expected 'node_modules/\\n.scion/\\n', got %q", string(content))
+	if string(content) != "node_modules/\n.scion/agents/\n" {
+		t.Errorf("expected 'node_modules/\\n.scion/agents/\\n', got %q", string(content))
 	}
 }
 
 func TestEnsureScionGitignore_RecognizesVariants(t *testing.T) {
-	for _, pattern := range []string{".scion", ".scion/", "/.scion", "/.scion/"} {
+	for _, pattern := range []string{".scion", ".scion/", "/.scion", "/.scion/", ".scion/agents", ".scion/agents/"} {
 		tmpDir := t.TempDir()
 		os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte(pattern+"\n"), 0644)
 
@@ -274,7 +274,7 @@ func TestInitProject_GitCreatesGroveIDAndExternalDir(t *testing.T) {
 		t.Errorf("expected external agents directory to exist at %s", externalDir)
 	}
 
-	// Verify templates/ and settings.yaml are in the external config dir, not in-repo
+	// Verify settings.yaml is in the external config dir (machine-specific, not committed)
 	externalConfigDir, err := GetGitGroveExternalConfigDir(scionDir)
 	if err != nil {
 		t.Fatalf("GetGitGroveExternalConfigDir failed: %v", err)
@@ -285,16 +285,13 @@ func TestInitProject_GitCreatesGroveIDAndExternalDir(t *testing.T) {
 	if _, err := os.Stat(externalConfigDir); os.IsNotExist(err) {
 		t.Errorf("expected external config directory to exist at %s", externalConfigDir)
 	}
-	if _, err := os.Stat(filepath.Join(externalConfigDir, "templates")); os.IsNotExist(err) {
-		t.Errorf("expected templates/ to exist in external config dir %s", externalConfigDir)
-	}
 	if _, err := os.Stat(filepath.Join(externalConfigDir, "settings.yaml")); os.IsNotExist(err) {
 		t.Errorf("expected settings.yaml to exist in external config dir %s", externalConfigDir)
 	}
 
-	// Verify templates/ and settings.yaml are NOT in-repo
-	if _, err := os.Stat(filepath.Join(scionDir, "templates")); err == nil {
-		t.Error("templates/ should not exist in-repo for git groves")
+	// Verify templates/ lives in-repo (committable) and settings.yaml is NOT in-repo
+	if _, err := os.Stat(filepath.Join(scionDir, "templates")); os.IsNotExist(err) {
+		t.Error("expected templates/ to exist in-repo for git groves (committable)")
 	}
 	if _, err := os.Stat(filepath.Join(scionDir, "settings.yaml")); err == nil {
 		t.Error("settings.yaml should not exist in-repo for git groves")
@@ -368,25 +365,23 @@ func TestInitProject_CreatesEmptyTemplatesDir(t *testing.T) {
 		t.Fatalf("InitProject failed: %v", err)
 	}
 
-	// For git groves templates land in the external config dir; for non-git groves
-	// they land inside tempDir. Use GetGroveConfigDir to find the right location.
-	configDir := GetGroveConfigDir(tempDir)
-
-	// Verify that templates/ directory exists
-	templatesDir := filepath.Join(configDir, "templates")
+	// Templates always live in the in-repo .scion/templates/ (for git groves) or
+	// in the external config dir (for non-git groves). Since tests run inside a git repo,
+	// check tempDir directly.
+	templatesDir := filepath.Join(tempDir, "templates")
 	if info, err := os.Stat(templatesDir); err != nil || !info.IsDir() {
 		t.Fatalf("Expected templates/ directory to exist at %s", templatesDir)
 	}
 
 	// Verify that templates/default does NOT exist (default template lives in global grove only)
-	defaultDir := filepath.Join(configDir, "templates", "default")
+	defaultDir := filepath.Join(tempDir, "templates", "default")
 	if _, err := os.Stat(defaultDir); !os.IsNotExist(err) {
 		t.Errorf("Expected templates/default to NOT exist at project level, but it does at %s", defaultDir)
 	}
 
 	// Verify per-harness templates were NOT created
 	for _, name := range []string{"gemini", "claude", "opencode", "codex"} {
-		perHarnessDir := filepath.Join(configDir, "templates", name)
+		perHarnessDir := filepath.Join(tempDir, "templates", name)
 		if _, err := os.Stat(perHarnessDir); !os.IsNotExist(err) {
 			t.Errorf("Expected per-harness template %s to NOT be created at project level", name)
 		}

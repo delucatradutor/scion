@@ -465,9 +465,9 @@ func initExternalGrove(projectDir string, opt InitProjectOpts) error {
 }
 
 // initInRepoGrove creates a git grove with .scion as a directory in the repo.
-// Settings and templates are stored externally at ~/.scion/grove-configs/<slug>__<uuid>/.scion/
+// Settings are stored externally at ~/.scion/grove-configs/<slug>__<uuid>/.scion/
 // and agent homes are stored externally at ~/.scion/grove-configs/<slug>__<uuid>/agents/.
-// Only the in-repo agents/ directory (for git worktrees) remains inside the repo.
+// Templates live in the in-repo .scion/templates/ so they can be committed to the repository.
 func initInRepoGrove(projectDir string, opt InitProjectOpts) error {
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return fmt.Errorf("failed to create settings directory: %w", err)
@@ -485,13 +485,13 @@ func initInRepoGrove(projectDir string, opt InitProjectOpts) error {
 		}
 	}
 
-	// Create external config dir for settings/templates
+	// Seed settings.yaml in the external config dir (machine-specific, not committed)
 	externalConfigDir, err := GetGitGroveExternalConfigDir(projectDir)
 	if err != nil {
 		return fmt.Errorf("failed to compute external config path: %w", err)
 	}
-	if err := os.MkdirAll(externalConfigDir, 0755); err != nil {
-		return fmt.Errorf("failed to create external config directory: %w", err)
+	if err := ensureGroveSettingsFile(externalConfigDir, opt); err != nil {
+		return err
 	}
 
 	// Create external agents directory for agent homes
@@ -510,8 +510,41 @@ func initInRepoGrove(projectDir string, opt InitProjectOpts) error {
 		return fmt.Errorf("failed to create agents directory: %w", err)
 	}
 
-	// Seed settings.yaml and templates/ in the external config dir
-	return ensureGroveConfigFiles(externalConfigDir, opt)
+	// Create in-repo templates dir — lives in-repo so project templates can be committed
+	if err := os.MkdirAll(filepath.Join(projectDir, "templates"), 0755); err != nil {
+		return fmt.Errorf("failed to create templates directory: %w", err)
+	}
+
+	return nil
+}
+
+// ensureGroveSettingsFile creates settings.yaml in configDir if it doesn't exist.
+// Unlike ensureGroveConfigFiles, it does not create templates/ (used for git groves
+// where templates live in-repo).
+func ensureGroveSettingsFile(configDir string, opt InitProjectOpts) error {
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create grove config directory: %w", err)
+	}
+
+	settingsPath := GetSettingsPath(configDir)
+	if settingsPath == "" {
+		if !opt.SkipRuntimeCheck {
+			if _, err := DetectLocalRuntime(); err != nil {
+				return err
+			}
+		}
+
+		defaultSettings, err := GetGroveDefaultSettingsYAML()
+		if err != nil {
+			return fmt.Errorf("failed to read default grove settings: %w", err)
+		}
+		newSettingsPath := filepath.Join(configDir, "settings.yaml")
+		if err := os.WriteFile(newSettingsPath, defaultSettings, 0644); err != nil {
+			return fmt.Errorf("failed to seed settings.yaml: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // ensureGroveConfigFiles creates settings.yaml and templates/ in configDir.
@@ -715,20 +748,23 @@ func EnsureScionGitignore(repoRoot string) error {
 		return err
 	}
 
-	// Check if .scion is already covered by an existing pattern
+	// Check if .scion agents dir is already covered by an existing pattern.
+	// A broad .scion/ pattern also covers agents/, so treat it as already handled.
 	for _, line := range strings.Split(string(content), "\n") {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == ".scion" || trimmed == ".scion/" || trimmed == "/.scion" || trimmed == "/.scion/" {
+		if trimmed == ".scion" || trimmed == ".scion/" || trimmed == "/.scion" || trimmed == "/.scion/" ||
+			trimmed == ".scion/agents" || trimmed == ".scion/agents/" {
 			return nil
 		}
 	}
 
-	// Append .scion/ to .gitignore
+	// Append .scion/agents/ to .gitignore. Only the agents directory (worktrees and
+	// agent homes) is excluded; templates/ and other config files can be committed.
 	var newContent string
 	if len(content) > 0 && content[len(content)-1] != '\n' {
-		newContent = string(content) + "\n.scion/\n"
+		newContent = string(content) + "\n.scion/agents/\n"
 	} else {
-		newContent = string(content) + ".scion/\n"
+		newContent = string(content) + ".scion/agents/\n"
 	}
 
 	return os.WriteFile(gitignorePath, []byte(newContent), 0644)

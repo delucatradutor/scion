@@ -325,19 +325,16 @@ func TestInitProject_EmptyTemplatesDir(t *testing.T) {
 		t.Fatalf("InitProject failed: %v", err)
 	}
 
-	// For git groves (CWD is inside a git repo during tests), templates land in
-	// the external config dir. For non-git groves they land inside projectDir.
-	// Use GetGroveConfigDir to find the canonical location.
-	configDir := GetGroveConfigDir(projectDir)
-
-	// Verify templates/ directory exists in the config dir
-	templatesDir := filepath.Join(configDir, "templates")
+	// Templates always live in the in-repo projectDir (for git groves) or in the
+	// external config dir (for non-git groves). Since tests run inside a git repo,
+	// projectDir is used directly.
+	templatesDir := filepath.Join(projectDir, "templates")
 	if info, err := os.Stat(templatesDir); err != nil || !info.IsDir() {
 		t.Fatalf("expected templates/ directory to exist at %s", templatesDir)
 	}
 
 	// Verify templates/default/ does NOT exist (default template lives in global grove only)
-	defaultTplDir := filepath.Join(configDir, "templates", "default")
+	defaultTplDir := filepath.Join(projectDir, "templates", "default")
 	if _, err := os.Stat(defaultTplDir); !os.IsNotExist(err) {
 		t.Errorf("expected templates/default/ to NOT exist at project level, but it does at %s", defaultTplDir)
 	}

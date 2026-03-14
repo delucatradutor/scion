@@ -171,7 +171,7 @@ func GetProjectTemplatesDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(GetGroveConfigDir(p), "templates"), nil
+	return filepath.Join(p, "templates"), nil
 }
 
 func GetGlobalTemplatesDir() (string, error) {
