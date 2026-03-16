@@ -98,6 +98,8 @@ scion hub secret set --grove OPENAI_API_KEY=sk-...
 
 Secrets are encrypted and never returned via the API; they are securely injected into agents at runtime by the Runtime Broker.
 
+These can also be managed via the web UI at either the user scope (under the profile) or at the Grove scope (under Grove settings page)
+
 See the [Secret & Environment Management guide](../hub-user/secrets/) for details on scoping and projection modes.
 
 ## Remote & Hub-Native Groves
