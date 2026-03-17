@@ -46,6 +46,26 @@ const (
 	BrokerAuthEventUnlink BrokerAuthEventType = "unlink"
 )
 
+// GCPTokenEventType defines the type of GCP token event.
+type GCPTokenEventType string
+
+const (
+	GCPTokenEventAccessToken   GCPTokenEventType = "gcp_access_token"
+	GCPTokenEventIdentityToken GCPTokenEventType = "gcp_identity_token"
+)
+
+// GCPTokenEvent represents an auditable GCP token generation event.
+type GCPTokenEvent struct {
+	EventType           GCPTokenEventType `json:"eventType"`
+	AgentID             string            `json:"agentId"`
+	GroveID             string            `json:"groveId"`
+	ServiceAccountEmail string            `json:"serviceAccountEmail"`
+	ServiceAccountID    string            `json:"serviceAccountId"`
+	Success             bool              `json:"success"`
+	FailReason          string            `json:"failReason,omitempty"`
+	Timestamp           time.Time         `json:"timestamp"`
+}
+
 // BrokerAuthEvent represents an auditable event related to broker authentication.
 type BrokerAuthEvent struct {
 	EventType  BrokerAuthEventType `json:"eventType"`
@@ -65,6 +85,8 @@ type BrokerAuthEvent struct {
 type AuditLogger interface {
 	// LogBrokerAuthEvent logs a broker authentication event.
 	LogBrokerAuthEvent(ctx context.Context, event *BrokerAuthEvent) error
+	// LogGCPTokenEvent logs a GCP token generation event.
+	LogGCPTokenEvent(ctx context.Context, event *GCPTokenEvent) error
 }
 
 // LogAuditLogger is a simple implementation that logs to the standard logger.
@@ -114,6 +136,30 @@ func (l *LogAuditLogger) LogBrokerAuthEvent(ctx context.Context, event *BrokerAu
 	}
 
 	slog.LogAttrs(ctx, level, "Broker auth audit event", attrs...)
+
+	return nil
+}
+
+// LogGCPTokenEvent logs a GCP token generation event to the standard logger.
+func (l *LogAuditLogger) LogGCPTokenEvent(ctx context.Context, event *GCPTokenEvent) error {
+	level := slog.LevelInfo
+	if !event.Success {
+		level = slog.LevelWarn
+	}
+
+	attrs := []slog.Attr{
+		slog.String("event_type", string(event.EventType)),
+		slog.Bool("success", event.Success),
+		slog.String("agent_id", event.AgentID),
+		slog.String("grove_id", event.GroveID),
+		slog.String("sa_email", event.ServiceAccountEmail),
+	}
+
+	if event.FailReason != "" {
+		attrs = append(attrs, slog.String("fail_reason", event.FailReason))
+	}
+
+	slog.LogAttrs(ctx, level, "GCP token audit event", attrs...)
 
 	return nil
 }
@@ -317,4 +363,24 @@ func LogUnlinkEvent(ctx context.Context, logger AuditLogger, brokerID, groveID, 
 	}
 
 	_ = logger.LogBrokerAuthEvent(ctx, event)
+}
+
+// LogGCPTokenGeneration logs a GCP token generation event.
+func LogGCPTokenGeneration(ctx context.Context, logger AuditLogger, eventType GCPTokenEventType, agentID, groveID, saEmail, saID string, success bool, failReason string) {
+	if logger == nil {
+		return
+	}
+
+	event := &GCPTokenEvent{
+		EventType:           eventType,
+		AgentID:             agentID,
+		GroveID:             groveID,
+		ServiceAccountEmail: saEmail,
+		ServiceAccountID:    saID,
+		Success:             success,
+		FailReason:          failReason,
+		Timestamp:           time.Now(),
+	}
+
+	_ = logger.LogGCPTokenEvent(ctx, event)
 }
