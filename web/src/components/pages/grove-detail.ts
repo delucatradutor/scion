@@ -31,9 +31,6 @@ import { stateManager } from '../../client/state.js';
 import type { ViewMode } from '../shared/view-toggle.js';
 import '../shared/status-badge.js';
 import '../shared/view-toggle.js';
-import '../shared/scheduled-event-list.js';
-import '../shared/subscription-manager.js';
-import '../shared/schedule-list.js';
 
 @customElement('scion-page-grove-detail')
 export class ScionPageGroveDetail extends LitElement {
@@ -1154,27 +1151,6 @@ export class ScionPageGroveDetail extends LitElement {
         </div>
       </div>
 
-      ${!this.grove.gitRemote ? this.renderWorkspaceFiles() : ''}
-
-      <scion-scheduled-event-list
-        .groveId=${this.grove.id}
-        compact
-      ></scion-scheduled-event-list>
-
-      ${this.pageData?.user
-        ? html`
-            <scion-subscription-manager
-              .groveId=${this.grove.id}
-              compact
-            ></scion-subscription-manager>
-          `
-        : nothing}
-
-      <scion-schedule-list
-        .groveId=${this.grove.id}
-        compact
-      ></scion-schedule-list>
-
       <div class="section-header">
         <h2>Agents</h2>
         <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -1202,6 +1178,8 @@ export class ScionPageGroveDetail extends LitElement {
       ${this.agents.length === 0
         ? this.renderEmptyAgents()
         : this.viewMode === 'grid' ? this.renderAgentGrid() : this.renderAgentTable()}
+
+      ${!this.grove.gitRemote ? this.renderWorkspaceFiles() : ''}
     `;
   }
 

@@ -31,6 +31,9 @@ import '../shared/secret-list.js';
 import '../shared/shared-dir-list.js';
 import '../shared/group-member-editor.js';
 import '../shared/gcp-service-account-list.js';
+import '../shared/scheduled-event-list.js';
+import '../shared/subscription-manager.js';
+import '../shared/schedule-list.js';
 
 interface Agent {
   id: string;
@@ -122,6 +125,12 @@ export class ScionPageGroveSettings extends LitElement {
 
   @state()
   private activeConfigTab = 'general';
+
+  @state()
+  private activeResourcesTab = 'env-vars';
+
+  @state()
+  private activeSchedulesTab = 'events';
 
   @state()
   private dropdownTemplates: Template[] = [];
@@ -844,45 +853,33 @@ export class ScionPageGroveSettings extends LitElement {
         <h1>${this.grove.name} Settings</h1>
       </div>
 
-      ${this.renderConfigSection()} ${this.renderTemplatesSection()}
+      ${this.renderConfigSection()}
+
       ${this.membersGroup
         ? html`
             <scion-group-member-editor
               groupId=${this.membersGroup.id}
               ?readOnly=${!canAny(this.grove._capabilities, 'update', 'manage')}
               compact
-              sectionTitle="Grove Members"
+              sectionTitle="Members"
               sectionDescription="Users and groups who can create and manage agents in this grove."
             ></scion-group-member-editor>
           `
         : ''}
-      ${canAny(this.grove._capabilities, 'update', 'manage')
+
+      ${this.renderResourcesSection()}
+
+      ${this.pageData?.user
         ? html`
-            <scion-env-var-list
-              scope="grove"
-              scopeId=${this.groveId}
-              apiBasePath="/api/v1/groves/${this.groveId}"
+            <scion-subscription-manager
+              .groveId=${this.grove.id}
               compact
-            ></scion-env-var-list>
-
-            <scion-secret-list
-              scope="grove"
-              scopeId=${this.groveId}
-              apiBasePath="/api/v1/groves/${this.groveId}"
-              compact
-            ></scion-secret-list>
-
-            <scion-shared-dir-list
-              groveId=${this.groveId}
-              apiBasePath="/api/v1/groves/${this.groveId}"
-            ></scion-shared-dir-list>
-
-            <scion-gcp-service-account-list
-              groveId=${this.groveId}
-              compact
-            ></scion-gcp-service-account-list>
+            ></scion-subscription-manager>
           `
         : ''}
+
+      ${this.renderSchedulesSection()}
+
       ${can(this.grove._capabilities, 'delete')
         ? html`
             <div class="section danger-section">
@@ -1196,86 +1193,170 @@ export class ScionPageGroveSettings extends LitElement {
     `;
   }
 
-  private renderTemplatesSection() {
+  private renderResourcesSection() {
+    const canEdit = canAny(this.grove!._capabilities, 'update', 'manage');
+    if (!canEdit) return '';
+
     return html`
       <div class="section">
-        <div class="section-header">
-          <div class="section-header-text">
-            <h2>Templates</h2>
-            <p>Grove-scoped agent templates synced to the Hub.</p>
-          </div>
-          ${canAny(this.grove!._capabilities, 'update', 'manage')
-            ? html`
-                <sl-button
-                  size="small"
-                  variant="default"
-                  ?loading=${this.syncLoading}
-                  ?disabled=${this.syncLoading}
-                  @click=${() => this.handleSyncTemplates()}
-                >
-                  <sl-icon slot="prefix" name="arrow-repeat"></sl-icon>
-                  Load Templates
-                </sl-button>
-              `
-            : ''}
-        </div>
+        <h2>Resources</h2>
+        <p>Grove-scoped resources available to agents.</p>
 
-        ${this.syncLoading
+        <sl-tab-group
+          @sl-tab-show=${(e: CustomEvent) => {
+            this.activeResourcesTab = (e.detail as { name: string }).name;
+          }}
+        >
+          <sl-tab slot="nav" panel="env-vars" ?active=${this.activeResourcesTab === 'env-vars'}>Environment Variables</sl-tab>
+          <sl-tab slot="nav" panel="secrets" ?active=${this.activeResourcesTab === 'secrets'}>Secrets</sl-tab>
+          <sl-tab slot="nav" panel="shared-dirs" ?active=${this.activeResourcesTab === 'shared-dirs'}>Shared Directories</sl-tab>
+          <sl-tab slot="nav" panel="templates" ?active=${this.activeResourcesTab === 'templates'}>Templates</sl-tab>
+          <sl-tab slot="nav" panel="gcp-sa" ?active=${this.activeResourcesTab === 'gcp-sa'}>GCP Service Accounts</sl-tab>
+
+          <sl-tab-panel name="env-vars">
+            <scion-env-var-list
+              scope="grove"
+              scopeId=${this.groveId}
+              apiBasePath="/api/v1/groves/${this.groveId}"
+            ></scion-env-var-list>
+          </sl-tab-panel>
+
+          <sl-tab-panel name="secrets">
+            <scion-secret-list
+              scope="grove"
+              scopeId=${this.groveId}
+              apiBasePath="/api/v1/groves/${this.groveId}"
+            ></scion-secret-list>
+          </sl-tab-panel>
+
+          <sl-tab-panel name="shared-dirs">
+            <scion-shared-dir-list
+              groveId=${this.groveId}
+              apiBasePath="/api/v1/groves/${this.groveId}"
+            ></scion-shared-dir-list>
+          </sl-tab-panel>
+
+          <sl-tab-panel name="templates">
+            ${this.renderTemplatesContent()}
+          </sl-tab-panel>
+
+          <sl-tab-panel name="gcp-sa">
+            <scion-gcp-service-account-list
+              groveId=${this.groveId}
+            ></scion-gcp-service-account-list>
+          </sl-tab-panel>
+        </sl-tab-group>
+      </div>
+    `;
+  }
+
+  private renderTemplatesContent() {
+    return html`
+      <div class="section-header" style="margin-bottom: 1rem;">
+        <div class="section-header-text">
+          <p style="margin: 0;">Grove-scoped agent templates synced to the Hub.</p>
+        </div>
+        ${canAny(this.grove!._capabilities, 'update', 'manage')
           ? html`
-              <div class="sync-status syncing">
-                <sl-spinner style="font-size: 0.875rem;"></sl-spinner>
-                Syncing templates from grove...
-              </div>
+              <sl-button
+                size="small"
+                variant="default"
+                ?loading=${this.syncLoading}
+                ?disabled=${this.syncLoading}
+                @click=${() => this.handleSyncTemplates()}
+              >
+                <sl-icon slot="prefix" name="arrow-repeat"></sl-icon>
+                Load Templates
+              </sl-button>
             `
           : ''}
-        ${this.syncError
+      </div>
+
+      ${this.syncLoading
+        ? html`
+            <div class="sync-status syncing">
+              <sl-spinner style="font-size: 0.875rem;"></sl-spinner>
+              Syncing templates from grove...
+            </div>
+          `
+        : ''}
+      ${this.syncError
+        ? html`
+            <div class="sync-status error">
+              <sl-icon name="exclamation-triangle"></sl-icon>
+              ${this.syncError}
+            </div>
+          `
+        : ''}
+      ${this.syncSuccess
+        ? html`
+            <div class="sync-status success">
+              <sl-icon name="check-circle"></sl-icon>
+              ${this.syncSuccess}
+            </div>
+          `
+        : ''}
+      ${this.templatesLoading && !this.syncLoading
+        ? html`<div class="empty-templates"><sl-spinner></sl-spinner></div>`
+        : this.templates.length > 0
           ? html`
-              <div class="sync-status error">
-                <sl-icon name="exclamation-triangle"></sl-icon>
-                ${this.syncError}
-              </div>
-            `
-          : ''}
-        ${this.syncSuccess
-          ? html`
-              <div class="sync-status success">
-                <sl-icon name="check-circle"></sl-icon>
-                ${this.syncSuccess}
-              </div>
-            `
-          : ''}
-        ${this.templatesLoading && !this.syncLoading
-          ? html`<div class="empty-templates"><sl-spinner></sl-spinner></div>`
-          : this.templates.length > 0
-            ? html`
-                <div class="template-list">
-                  ${this.templates.map(
-                    (t) => html`
-                      <div class="template-item">
-                        <sl-icon name="file-earmark-code"></sl-icon>
-                        <div class="template-info">
-                          <div class="template-name">${t.displayName || t.name}</div>
-                          ${t.description
-                            ? html`<div class="template-meta">${t.description}</div>`
-                            : ''}
-                        </div>
-                        ${t.harness ? html`<span class="template-badge">${t.harness}</span>` : ''}
+              <div class="template-list">
+                ${this.templates.map(
+                  (t) => html`
+                    <div class="template-item">
+                      <sl-icon name="file-earmark-code"></sl-icon>
+                      <div class="template-info">
+                        <div class="template-name">${t.displayName || t.name}</div>
+                        ${t.description
+                          ? html`<div class="template-meta">${t.description}</div>`
+                          : ''}
                       </div>
-                    `
-                  )}
-                </div>
-              `
-            : html`
-                <div class="empty-templates">
-                  <sl-icon name="file-earmark"></sl-icon>
-                  <p>No grove templates synced yet.</p>
-                  ${canAny(this.grove!._capabilities, 'update', 'manage')
-                    ? html`<p>
-                        Use "Load Templates" to sync templates from the grove's filesystem.
-                      </p>`
-                    : ''}
-                </div>
-              `}
+                      ${t.harness ? html`<span class="template-badge">${t.harness}</span>` : ''}
+                    </div>
+                  `
+                )}
+              </div>
+            `
+          : html`
+              <div class="empty-templates">
+                <sl-icon name="file-earmark"></sl-icon>
+                <p>No grove templates synced yet.</p>
+                ${canAny(this.grove!._capabilities, 'update', 'manage')
+                  ? html`<p>
+                      Use "Load Templates" to sync templates from the grove's filesystem.
+                    </p>`
+                  : ''}
+              </div>
+            `}
+    `;
+  }
+
+  private renderSchedulesSection() {
+    return html`
+      <div class="section">
+        <h2>Schedules</h2>
+        <p>Manage scheduled and recurring events for this grove.</p>
+
+        <sl-tab-group
+          @sl-tab-show=${(e: CustomEvent) => {
+            this.activeSchedulesTab = (e.detail as { name: string }).name;
+          }}
+        >
+          <sl-tab slot="nav" panel="events" ?active=${this.activeSchedulesTab === 'events'}>Events</sl-tab>
+          <sl-tab slot="nav" panel="recurring" ?active=${this.activeSchedulesTab === 'recurring'}>Recurring</sl-tab>
+
+          <sl-tab-panel name="events">
+            <scion-scheduled-event-list
+              .groveId=${this.grove!.id}
+            ></scion-scheduled-event-list>
+          </sl-tab-panel>
+
+          <sl-tab-panel name="recurring">
+            <scion-schedule-list
+              .groveId=${this.grove!.id}
+            ></scion-schedule-list>
+          </sl-tab-panel>
+        </sl-tab-group>
       </div>
     `;
   }
