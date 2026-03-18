@@ -1443,6 +1443,36 @@ func TestDeleteHarnessConfigsByScope(t *testing.T) {
 	assert.Empty(t, result.Items)
 }
 
+func TestDeleteTemplatesByScope(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	groveID := api.NewUUID()
+	require.NoError(t, s.CreateGrove(ctx, &store.Grove{
+		ID: groveID, Name: "Tmpl Cascade", Slug: "tmpl-cascade",
+		Visibility: store.VisibilityPrivate,
+	}))
+
+	require.NoError(t, s.CreateTemplate(ctx, &store.Template{
+		ID: api.NewUUID(), Name: "tmpl1", Slug: "tmpl1",
+		Harness: "claude", Scope: store.ScopeGrove, ScopeID: groveID,
+		Status: store.TemplateStatusActive, Visibility: store.VisibilityPrivate,
+	}))
+	require.NoError(t, s.CreateTemplate(ctx, &store.Template{
+		ID: api.NewUUID(), Name: "tmpl2", Slug: "tmpl2",
+		Harness: "gemini", Scope: store.ScopeGrove, ScopeID: groveID,
+		Status: store.TemplateStatusActive, Visibility: store.VisibilityPrivate,
+	}))
+
+	n, err := s.DeleteTemplatesByScope(ctx, store.ScopeGrove, groveID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	result, err := s.ListTemplates(ctx, store.TemplateFilter{Scope: store.ScopeGrove, ScopeID: groveID}, store.ListOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, result.Items)
+}
+
 // ============================================================================
 // MarkStaleAgentsOffline Tests
 // ============================================================================

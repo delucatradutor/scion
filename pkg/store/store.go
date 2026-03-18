@@ -269,6 +269,10 @@ type TemplateStore interface {
 	// Returns ErrNotFound if the template doesn't exist.
 	DeleteTemplate(ctx context.Context, id string) error
 
+	// DeleteTemplatesByScope removes all templates for a given scope.
+	// Returns the number of deleted records. No error if zero rows affected.
+	DeleteTemplatesByScope(ctx context.Context, scope, scopeID string) (int, error)
+
 	// ListTemplates returns templates matching the filter criteria.
 	ListTemplates(ctx context.Context, filter TemplateFilter, opts ListOptions) (*ListResult[Template], error)
 }

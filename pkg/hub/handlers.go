@@ -3531,12 +3531,11 @@ func (s *Server) deleteGrove(w http.ResponseWriter, r *http.Request, id string) 
 		slog.Info("deleted grove secrets", "grove", id, "count", n)
 	}
 
-	// Clean up grove-scoped harness configs (best-effort).
-	if n, err := s.store.DeleteHarnessConfigsByScope(ctx, store.ScopeGrove, id); err != nil {
-		slog.Warn("failed to delete grove harness configs", "grove", id, "error", err)
-	} else if n > 0 {
-		slog.Info("deleted grove harness configs", "grove", id, "count", n)
-	}
+	// Clean up grove-scoped templates (best-effort), including storage files.
+	s.deleteGroveTemplates(ctx, id)
+
+	// Clean up grove-scoped harness configs (best-effort), including storage files.
+	s.deleteGroveHarnessConfigs(ctx, id)
 
 	// For hub-native groves, notify provider brokers to clean up their
 	// local grove directories. This must run before DeleteGrove because
@@ -3608,6 +3607,64 @@ func (s *Server) deleteGroveAgents(ctx context.Context, grove *store.Grove) {
 			}
 		}
 		s.events.PublishAgentDeleted(ctx, agent.ID, agent.GroveID)
+	}
+}
+
+// deleteGroveTemplates deletes all grove-scoped templates including their
+// storage files (GCS/local). This is best-effort: failures are logged but
+// do not block grove deletion.
+func (s *Server) deleteGroveTemplates(ctx context.Context, groveID string) {
+	// List all grove-scoped templates so we can clean up their storage files.
+	templates, err := s.store.ListTemplates(ctx, store.TemplateFilter{
+		Scope:   store.ScopeGrove,
+		ScopeID: groveID,
+	}, store.ListOptions{Limit: 1000})
+	if err != nil {
+		slog.Warn("failed to list grove templates for deletion", "grove", groveID, "error", err)
+	} else if stor := s.GetStorage(); stor != nil {
+		for _, tmpl := range templates.Items {
+			if tmpl.StoragePath != "" {
+				if err := stor.DeletePrefix(ctx, tmpl.StoragePath); err != nil {
+					slog.Warn("failed to delete template storage files",
+						"grove", groveID, "template", tmpl.ID, "path", tmpl.StoragePath, "error", err)
+				}
+			}
+		}
+	}
+
+	if n, err := s.store.DeleteTemplatesByScope(ctx, store.ScopeGrove, groveID); err != nil {
+		slog.Warn("failed to delete grove templates", "grove", groveID, "error", err)
+	} else if n > 0 {
+		slog.Info("deleted grove templates", "grove", groveID, "count", n)
+	}
+}
+
+// deleteGroveHarnessConfigs deletes all grove-scoped harness configs including
+// their storage files (GCS/local). This is best-effort: failures are logged
+// but do not block grove deletion.
+func (s *Server) deleteGroveHarnessConfigs(ctx context.Context, groveID string) {
+	// List all grove-scoped harness configs so we can clean up their storage files.
+	configs, err := s.store.ListHarnessConfigs(ctx, store.HarnessConfigFilter{
+		Scope:   store.ScopeGrove,
+		ScopeID: groveID,
+	}, store.ListOptions{Limit: 1000})
+	if err != nil {
+		slog.Warn("failed to list grove harness configs for deletion", "grove", groveID, "error", err)
+	} else if stor := s.GetStorage(); stor != nil {
+		for _, hc := range configs.Items {
+			if hc.StoragePath != "" {
+				if err := stor.DeletePrefix(ctx, hc.StoragePath); err != nil {
+					slog.Warn("failed to delete harness config storage files",
+						"grove", groveID, "harnessConfig", hc.ID, "path", hc.StoragePath, "error", err)
+				}
+			}
+		}
+	}
+
+	if n, err := s.store.DeleteHarnessConfigsByScope(ctx, store.ScopeGrove, groveID); err != nil {
+		slog.Warn("failed to delete grove harness configs", "grove", groveID, "error", err)
+	} else if n > 0 {
+		slog.Info("deleted grove harness configs", "grove", groveID, "count", n)
 	}
 }
 

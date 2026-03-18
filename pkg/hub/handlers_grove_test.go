@@ -1044,6 +1044,13 @@ func TestDeleteGrove_CascadesEnvVarsSecretsHarnessConfigs(t *testing.T) {
 		Status: store.HarnessConfigStatusActive, Visibility: store.VisibilityPrivate,
 	}))
 
+	// Create grove-scoped templates
+	require.NoError(t, s.CreateTemplate(ctx, &store.Template{
+		ID: api.NewUUID(), Name: "grove-tmpl", Slug: "grove-tmpl",
+		Harness: "claude", Scope: store.ScopeGrove, ScopeID: grove.ID,
+		Status: store.TemplateStatusActive, Visibility: store.VisibilityPrivate,
+	}))
+
 	// Also create a hub-scoped env var that should NOT be deleted
 	hubEnvVarID := api.NewUUID()
 	require.NoError(t, s.CreateEnvVar(ctx, &store.EnvVar{
@@ -1078,6 +1085,11 @@ func TestDeleteGrove_CascadesEnvVarsSecretsHarnessConfigs(t *testing.T) {
 	hcResult, err := s.ListHarnessConfigs(ctx, store.HarnessConfigFilter{Scope: store.ScopeGrove, ScopeID: grove.ID}, store.ListOptions{})
 	require.NoError(t, err)
 	assert.Empty(t, hcResult.Items, "grove harness configs should be cascade deleted")
+
+	// Verify grove-scoped templates were deleted
+	tmplResult, err := s.ListTemplates(ctx, store.TemplateFilter{Scope: store.ScopeGrove, ScopeID: grove.ID}, store.ListOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, tmplResult.Items, "grove templates should be cascade deleted")
 
 	// Verify hub-scoped env var was NOT deleted
 	hubVars, err := s.ListEnvVars(ctx, store.EnvVarFilter{Scope: store.ScopeHub, ScopeID: store.ScopeIDHub})

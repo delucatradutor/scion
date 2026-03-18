@@ -2138,6 +2138,18 @@ func (s *SQLiteStore) DeleteTemplate(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *SQLiteStore) DeleteTemplatesByScope(ctx context.Context, scope, scopeID string) (int, error) {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM templates WHERE scope = ? AND scope_id = ?", scope, scopeID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
 func (s *SQLiteStore) ListTemplates(ctx context.Context, filter store.TemplateFilter, opts store.ListOptions) (*store.ListResult[store.Template], error) {
 	var conditions []string
 	var args []interface{}
