@@ -265,13 +265,19 @@ export class ScionPageAgentDetail extends LitElement {
       padding: 1.5rem;
       margin-bottom: 1.5rem;
     }
+    .card-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--scion-border, #e2e8f0);
+    }
     .card-title {
       font-size: 1rem;
       font-weight: 600;
       color: var(--scion-text, #1e293b);
-      margin: 0 0 1rem 0;
-      padding-bottom: 0.75rem;
-      border-bottom: 1px solid var(--scion-border, #e2e8f0);
+      margin: 0;
     }
 
     /* ---- Info grid ---- */
@@ -554,32 +560,6 @@ export class ScionPageAgentDetail extends LitElement {
       color: var(--scion-text-muted, #64748b);
     }
 
-    /* ---- Subscribe bell ---- */
-    .subscribe-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 2.25rem;
-      height: 2.25rem;
-      border: 1px solid var(--scion-border, #e2e8f0);
-      border-radius: var(--scion-radius, 0.5rem);
-      background: transparent;
-      color: var(--scion-text-muted, #64748b);
-      cursor: pointer;
-      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-    }
-    .subscribe-btn:hover {
-      background: var(--scion-bg-subtle, #f1f5f9);
-      color: var(--scion-text, #1e293b);
-    }
-    .subscribe-btn.active {
-      background: var(--sl-color-primary-100, #dbeafe);
-      color: var(--scion-primary, #3b82f6);
-      border-color: var(--scion-primary, #3b82f6);
-    }
-    .subscribe-btn sl-icon {
-      font-size: 1.125rem;
-    }
   `;
 
   private boundOnAgentsUpdated = this.onAgentsUpdated.bind(this);
@@ -1022,20 +1002,6 @@ export class ScionPageAgentDetail extends LitElement {
           </div>
         </div>
         <div class="header-actions">
-          ${this.pageData?.user
-            ? html`
-                <sl-tooltip content=${this.subscribed ? 'Unsubscribe from notifications' : 'Subscribe to notifications'}>
-                  <button
-                    class="subscribe-btn ${this.subscribed ? 'active' : ''}"
-                    @click=${() => void this.toggleSubscription()}
-                    ?disabled=${this.subscriptionLoading}
-                    aria-label=${this.subscribed ? 'Unsubscribe' : 'Subscribe'}
-                  >
-                    <sl-icon name=${this.subscribed ? 'bell-fill' : 'bell'}></sl-icon>
-                  </button>
-                </sl-tooltip>
-              `
-            : nothing}
           ${can(agent._capabilities, 'attach')
             ? html`
                 <a href="/agents/${this.agentId}/terminal" style="text-decoration: none;">
@@ -1124,7 +1090,26 @@ export class ScionPageAgentDetail extends LitElement {
   private renderCurrentStateCard(agent: Agent) {
     return html`
       <div class="card">
-        <h3 class="card-title">Current State</h3>
+        <div class="card-title-row">
+          <h3 class="card-title">Current State</h3>
+          ${this.pageData?.user
+            ? html`
+                <sl-tooltip content=${this.subscribed ? 'Unsubscribe from notifications' : 'Subscribe to notifications'}>
+                  <sl-button
+                    size="small"
+                    variant=${this.subscribed ? 'primary' : 'default'}
+                    outline
+                    @click=${() => void this.toggleSubscription()}
+                    ?loading=${this.subscriptionLoading}
+                    aria-label=${this.subscribed ? 'Unsubscribe' : 'Subscribe'}
+                  >
+                    <sl-icon slot="prefix" name=${this.subscribed ? 'bell-fill' : 'bell'}></sl-icon>
+                    ${this.subscribed ? 'Subscribed' : 'Subscribe'}
+                  </sl-button>
+                </sl-tooltip>
+              `
+            : nothing}
+        </div>
         <div class="info-grid">
           <div class="info-item">
             <span class="info-label">Phase</span>

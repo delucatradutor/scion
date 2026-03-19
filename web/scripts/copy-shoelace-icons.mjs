@@ -77,6 +77,7 @@ const USED_ICONS = [
   'hourglass-split',
   'info-circle',
   'info-circle-fill',
+  'bell-fill',
   'key',
   'link-45deg',
   'list',
