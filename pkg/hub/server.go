@@ -31,6 +31,7 @@ import (
 
 	"github.com/GoogleCloudPlatform/scion/pkg/api"
 	"github.com/GoogleCloudPlatform/scion/pkg/broker"
+	"github.com/GoogleCloudPlatform/scion/pkg/hub/githubapp"
 	"github.com/GoogleCloudPlatform/scion/pkg/messages"
 	"github.com/GoogleCloudPlatform/scion/pkg/secret"
 	"github.com/GoogleCloudPlatform/scion/pkg/storage"
@@ -452,6 +453,9 @@ type Server struct {
 	envSecretLog      *slog.Logger
 	templateLog       *slog.Logger
 	workspaceLog      *slog.Logger
+
+	// Cached rate limit info from the most recent GitHub App API call
+	githubAppRateLimit *githubapp.RateLimitInfo
 }
 
 // New creates a new Hub API server.

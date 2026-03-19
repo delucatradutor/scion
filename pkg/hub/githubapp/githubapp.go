@@ -26,8 +26,11 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -102,12 +105,70 @@ const (
 	ErrCodeAppNotFound           = "app_not_found"
 )
 
+// RateLimitInfo holds GitHub API rate limit information from response headers.
+type RateLimitInfo struct {
+	Limit     int       `json:"limit"`
+	Remaining int       `json:"remaining"`
+	Reset     time.Time `json:"reset"`
+	Used      int       `json:"used"`
+}
+
+// parseRateLimitHeaders extracts rate limit info from a GitHub API response.
+func parseRateLimitHeaders(resp *http.Response) *RateLimitInfo {
+	info := &RateLimitInfo{}
+	if v := resp.Header.Get("X-RateLimit-Limit"); v != "" {
+		info.Limit, _ = strconv.Atoi(v)
+	}
+	if v := resp.Header.Get("X-RateLimit-Remaining"); v != "" {
+		info.Remaining, _ = strconv.Atoi(v)
+	}
+	if v := resp.Header.Get("X-RateLimit-Used"); v != "" {
+		info.Used, _ = strconv.Atoi(v)
+	}
+	if v := resp.Header.Get("X-RateLimit-Reset"); v != "" {
+		if epoch, err := strconv.ParseInt(v, 10, 64); err == nil {
+			info.Reset = time.Unix(epoch, 0)
+		}
+	}
+	return info
+}
+
 // Client handles GitHub App authentication operations.
 type Client struct {
 	appID      int64
 	privateKey *rsa.PrivateKey
 	apiBaseURL string
 	httpClient *http.Client
+
+	mu            sync.Mutex
+	lastRateLimit *RateLimitInfo
+}
+
+// GetRateLimit returns the most recently observed rate limit info.
+func (c *Client) GetRateLimit() *RateLimitInfo {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.lastRateLimit == nil {
+		return nil
+	}
+	rl := *c.lastRateLimit
+	return &rl
+}
+
+// trackRateLimit parses rate limit headers from a response, stores the info,
+// and logs a warning if the remaining quota is below 20%.
+func (c *Client) trackRateLimit(resp *http.Response) {
+	rl := parseRateLimitHeaders(resp)
+	c.mu.Lock()
+	c.lastRateLimit = rl
+	c.mu.Unlock()
+
+	if rl.Limit > 0 && rl.Remaining < rl.Limit/5 {
+		slog.Warn("GitHub API rate limit running low",
+			"remaining", rl.Remaining,
+			"limit", rl.Limit,
+			"reset", rl.Reset.Format(time.RFC3339))
+	}
 }
 
 // NewClient creates a new GitHub App client from the given config.
@@ -290,6 +351,8 @@ func (c *Client) MintInstallationToken(ctx context.Context, installationID int64
 		}
 	}
 
+	c.trackRateLimit(resp)
+
 	if resp.StatusCode != http.StatusCreated {
 		return nil, classifyGitHubError(resp.StatusCode, body)
 	}
@@ -440,6 +503,8 @@ func (c *Client) GetInstallation(ctx context.Context, installationID int64) (*In
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
+	c.trackRateLimit(resp)
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, classifyGitHubError(resp.StatusCode, body)
 	}
@@ -483,6 +548,8 @@ func (c *Client) ListInstallations(ctx context.Context) ([]Installation, error) 
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response: %w", err)
 		}
+
+		c.trackRateLimit(resp)
 
 		if resp.StatusCode != http.StatusOK {
 			return nil, classifyGitHubError(resp.StatusCode, body)
@@ -537,6 +604,8 @@ func (c *Client) ListInstallationRepos(ctx context.Context, installationID int64
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response: %w", err)
 		}
+
+		c.trackRateLimit(resp)
 
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("failed to list repos (status %d): %s", resp.StatusCode, string(body))
@@ -609,6 +678,8 @@ func (c *Client) GetApp(ctx context.Context) (map[string]interface{}, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
+
+	c.trackRateLimit(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, classifyGitHubError(resp.StatusCode, body)

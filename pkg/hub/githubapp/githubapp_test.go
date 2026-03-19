@@ -398,3 +398,181 @@ func TestClassifyGitHubError(t *testing.T) {
 
 // Ensure jose import is available for JWT parsing in tests
 var _ = fmt.Sprintf
+
+func TestParseRateLimitHeaders(t *testing.T) {
+	tests := []struct {
+		name     string
+		headers  map[string]string
+		expected RateLimitInfo
+	}{
+		{
+			name: "all headers present",
+			headers: map[string]string{
+				"X-RateLimit-Limit":     "5000",
+				"X-RateLimit-Remaining": "4990",
+				"X-RateLimit-Used":      "10",
+				"X-RateLimit-Reset":     "1700000000",
+			},
+			expected: RateLimitInfo{
+				Limit:     5000,
+				Remaining: 4990,
+				Used:      10,
+				Reset:     time.Unix(1700000000, 0),
+			},
+		},
+		{
+			name:    "no headers",
+			headers: map[string]string{},
+			expected: RateLimitInfo{
+				Limit:     0,
+				Remaining: 0,
+				Used:      0,
+			},
+		},
+		{
+			name: "partial headers",
+			headers: map[string]string{
+				"X-RateLimit-Limit":     "5000",
+				"X-RateLimit-Remaining": "100",
+			},
+			expected: RateLimitInfo{
+				Limit:     5000,
+				Remaining: 100,
+			},
+		},
+		{
+			name: "invalid values ignored",
+			headers: map[string]string{
+				"X-RateLimit-Limit":     "notanumber",
+				"X-RateLimit-Remaining": "200",
+				"X-RateLimit-Reset":     "invalid",
+			},
+			expected: RateLimitInfo{
+				Limit:     0,
+				Remaining: 200,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := &http.Response{Header: http.Header{}}
+			for k, v := range tc.headers {
+				resp.Header.Set(k, v)
+			}
+			info := parseRateLimitHeaders(resp)
+			if info.Limit != tc.expected.Limit {
+				t.Errorf("Limit: got %d, want %d", info.Limit, tc.expected.Limit)
+			}
+			if info.Remaining != tc.expected.Remaining {
+				t.Errorf("Remaining: got %d, want %d", info.Remaining, tc.expected.Remaining)
+			}
+			if info.Used != tc.expected.Used {
+				t.Errorf("Used: got %d, want %d", info.Used, tc.expected.Used)
+			}
+			if !info.Reset.Equal(tc.expected.Reset) {
+				t.Errorf("Reset: got %v, want %v", info.Reset, tc.expected.Reset)
+			}
+		})
+	}
+}
+
+func TestClientGetRateLimit_NilWhenNoRequests(t *testing.T) {
+	pemData, _ := generateTestKey(t)
+	client, err := NewClient(Config{AppID: 123}, pemData)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if rl := client.GetRateLimit(); rl != nil {
+		t.Errorf("expected nil rate limit before any requests, got %+v", rl)
+	}
+}
+
+func TestClientGetRateLimit_ReturnsCopy(t *testing.T) {
+	pemData, _ := generateTestKey(t)
+	client, err := NewClient(Config{AppID: 123}, pemData)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	// Manually set rate limit to simulate a completed request
+	client.mu.Lock()
+	client.lastRateLimit = &RateLimitInfo{
+		Limit:     5000,
+		Remaining: 4500,
+		Used:      500,
+		Reset:     time.Unix(1700000000, 0),
+	}
+	client.mu.Unlock()
+
+	rl := client.GetRateLimit()
+	if rl == nil {
+		t.Fatal("expected non-nil rate limit")
+	}
+	if rl.Limit != 5000 || rl.Remaining != 4500 || rl.Used != 500 {
+		t.Errorf("unexpected rate limit values: %+v", rl)
+	}
+
+	// Verify it's a copy (modifying returned value shouldn't affect client)
+	rl.Remaining = 0
+	rl2 := client.GetRateLimit()
+	if rl2.Remaining != 4500 {
+		t.Error("GetRateLimit did not return a copy")
+	}
+}
+
+func TestTrackRateLimit_UpdatesOnAPIResponse(t *testing.T) {
+	// Set up a mock GitHub API that returns rate limit headers
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-RateLimit-Limit", "5000")
+		w.Header().Set("X-RateLimit-Remaining", "4999")
+		w.Header().Set("X-RateLimit-Used", "1")
+		w.Header().Set("X-RateLimit-Reset", "1700000000")
+
+		if r.URL.Path == "/app" {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id":   1,
+				"name": "test-app",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	pemData, _ := generateTestKey(t)
+	client, err := NewClient(Config{
+		AppID:      123,
+		APIBaseURL: server.URL,
+	}, pemData)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	// Before any request, rate limit should be nil
+	if rl := client.GetRateLimit(); rl != nil {
+		t.Fatal("expected nil rate limit before request")
+	}
+
+	// Make a request that triggers rate limit tracking
+	_, err = client.GetApp(context.Background())
+	if err != nil {
+		t.Fatalf("GetApp: %v", err)
+	}
+
+	// Rate limit should now be populated
+	rl := client.GetRateLimit()
+	if rl == nil {
+		t.Fatal("expected non-nil rate limit after request")
+	}
+	if rl.Limit != 5000 {
+		t.Errorf("Limit: got %d, want 5000", rl.Limit)
+	}
+	if rl.Remaining != 4999 {
+		t.Errorf("Remaining: got %d, want 4999", rl.Remaining)
+	}
+	if rl.Used != 1 {
+		t.Errorf("Used: got %d, want 1", rl.Used)
+	}
+}

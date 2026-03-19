@@ -512,6 +512,7 @@ func (s *Server) matchGrovesToInstallation(ctx context.Context, installation *st
 				"grove_id", grove.ID, "installation_id", installation.InstallationID, "error", err)
 			continue
 		}
+		s.events.PublishGroveUpdated(ctx, &grove)
 
 		slog.Info("Auto-associated grove with GitHub App installation",
 			"grove_id", grove.ID, "grove_name", grove.Name,
@@ -557,6 +558,8 @@ func (s *Server) updateGrovesForInstallation(ctx context.Context, installationID
 		if err := s.store.UpdateGrove(ctx, &grove); err != nil {
 			slog.Error("Failed to update grove GitHub App status",
 				"grove_id", grove.ID, "error", err)
+		} else {
+			s.events.PublishGroveUpdated(ctx, &grove)
 		}
 	}
 }
@@ -596,6 +599,8 @@ func (s *Server) checkGrovesForRemovedRepos(ctx context.Context, installationID 
 		if err := s.store.UpdateGrove(ctx, &grove); err != nil {
 			slog.Error("Failed to update grove after repo removal",
 				"grove_id", grove.ID, "error", err)
+		} else {
+			s.events.PublishGroveUpdated(ctx, &grove)
 		}
 	}
 }
@@ -743,6 +748,13 @@ func (s *Server) mintGitHubAppToken(ctx context.Context, grove *store.Grove) (st
 		return "", "", err
 	}
 
+	// Cache rate limit info
+	if rl := client.GetRateLimit(); rl != nil {
+		s.mu.Lock()
+		s.githubAppRateLimit = rl
+		s.mu.Unlock()
+	}
+
 	// Success — update grove status
 	now := timeNow()
 	grove.GitHubAppStatus = &store.GitHubAppGroveStatus{
@@ -752,6 +764,8 @@ func (s *Server) mintGitHubAppToken(ctx context.Context, grove *store.Grove) (st
 	}
 	if err := s.store.UpdateGrove(ctx, grove); err != nil {
 		slog.Warn("Failed to update grove status after successful token mint", "error", err)
+	} else {
+		s.events.PublishGroveUpdated(ctx, grove)
 	}
 
 	return token.Token, token.ExpiresAt.Format("2006-01-02T15:04:05Z"), nil
@@ -769,6 +783,8 @@ func (s *Server) updateGroveGitHubAppStatus(ctx context.Context, grove *store.Gr
 	}
 	if err := s.store.UpdateGrove(ctx, grove); err != nil {
 		slog.Warn("Failed to update grove GitHub App status", "grove_id", grove.ID, "error", err)
+	} else {
+		s.events.PublishGroveUpdated(ctx, grove)
 	}
 }
 

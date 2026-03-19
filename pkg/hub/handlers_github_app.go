@@ -20,16 +20,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GoogleCloudPlatform/scion/pkg/hub/githubapp"
 	"github.com/GoogleCloudPlatform/scion/pkg/store"
 )
 
 // GitHubAppConfigResponse is the API response for GitHub App configuration.
 // Sensitive fields (private key, webhook secret) are never returned.
 type GitHubAppConfigResponse struct {
-	AppID           int64  `json:"app_id"`
-	APIBaseURL      string `json:"api_base_url,omitempty"`
-	WebhooksEnabled bool   `json:"webhooks_enabled"`
-	Configured      bool   `json:"configured"`
+	AppID           int64                   `json:"app_id"`
+	APIBaseURL      string                  `json:"api_base_url,omitempty"`
+	WebhooksEnabled bool                    `json:"webhooks_enabled"`
+	Configured      bool                    `json:"configured"`
+	RateLimit       *githubapp.RateLimitInfo `json:"rate_limit,omitempty"`
 }
 
 // GitHubAppConfigUpdateRequest is the API request to update GitHub App configuration.
@@ -56,6 +58,7 @@ func (s *Server) handleGitHubApp(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetGitHubApp(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	cfg := s.config.GitHubAppConfig
+	rateLimit := s.githubAppRateLimit
 	s.mu.RUnlock()
 
 	writeJSON(w, http.StatusOK, GitHubAppConfigResponse{
@@ -63,6 +66,7 @@ func (s *Server) handleGetGitHubApp(w http.ResponseWriter, r *http.Request) {
 		APIBaseURL:      cfg.APIBaseURL,
 		WebhooksEnabled: cfg.WebhooksEnabled,
 		Configured:      cfg.AppID != 0 && (cfg.PrivateKeyPath != "" || cfg.PrivateKey != ""),
+		RateLimit:       rateLimit,
 	})
 }
 
@@ -277,6 +281,7 @@ func (s *Server) handleGroveGitHubInstallation(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to update grove", nil)
 			return
 		}
+		s.events.PublishGroveUpdated(r.Context(), grove)
 
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"grove_id":        groveID,
@@ -302,6 +307,7 @@ func (s *Server) handleGroveGitHubInstallation(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to update grove", nil)
 			return
 		}
+		s.events.PublishGroveUpdated(r.Context(), grove)
 
 		w.WriteHeader(http.StatusNoContent)
 
