@@ -188,6 +188,11 @@ export class ScionPageAgents extends LitElement {
       this.viewMode = stored;
     }
 
+    // Read persisted mine-only filter
+    if (this.pageData?.user && localStorage.getItem('scion-filter-mine-agents') === 'true') {
+      this.showMineOnly = true;
+    }
+
     // Set SSE scope to dashboard (all grove summaries).
     // This must happen before checking hydrated data because setScope clears
     // state maps when the scope changes (e.g. from agent-detail to dashboard).
@@ -196,8 +201,9 @@ export class ScionPageAgents extends LitElement {
     // Use hydrated data from SSR if available, avoiding the initial fetch.
     // Only trust it when scope was previously null (initial SSR page load);
     // on client-side navigations the maps were just cleared by setScope above.
+    // Skip hydrated data when mine-only filter is active — SSR data is unfiltered.
     const hydratedAgents = stateManager.getAgents();
-    if (hydratedAgents.length > 0) {
+    if (hydratedAgents.length > 0 && !this.showMineOnly) {
       this.agents = hydratedAgents;
       this.scopeCapabilities = stateManager.getScopeCapabilities();
       this.loading = false;
@@ -412,6 +418,7 @@ export class ScionPageAgents extends LitElement {
 
   private toggleMineOnly(): void {
     this.showMineOnly = !this.showMineOnly;
+    localStorage.setItem('scion-filter-mine-agents', String(this.showMineOnly));
     void this.loadAgents();
   }
 

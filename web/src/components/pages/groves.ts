@@ -127,6 +127,11 @@ export class ScionPageGroves extends LitElement {
       this.viewMode = stored;
     }
 
+    // Read persisted mine-only filter
+    if (this.pageData?.user && localStorage.getItem('scion-filter-mine-groves') === 'true') {
+      this.showMineOnly = true;
+    }
+
     // Set SSE scope to dashboard (grove summaries).
     // This must happen before checking hydrated data because setScope clears
     // state maps when the scope changes (e.g. from grove-detail to dashboard).
@@ -135,8 +140,9 @@ export class ScionPageGroves extends LitElement {
     // Use hydrated data from SSR if available, avoiding the initial fetch.
     // Only trust it when scope was previously null (initial SSR page load);
     // on client-side navigations the maps were just cleared by setScope above.
+    // Skip hydrated data when mine-only filter is active — SSR data is unfiltered.
     const hydratedGroves = stateManager.getGroves();
-    if (hydratedGroves.length > 0) {
+    if (hydratedGroves.length > 0 && !this.showMineOnly) {
       this.groves = hydratedGroves;
       this.scopeCapabilities = stateManager.getScopeCapabilities();
       this.loading = false;
@@ -223,6 +229,7 @@ export class ScionPageGroves extends LitElement {
 
   private toggleMineOnly(): void {
     this.showMineOnly = !this.showMineOnly;
+    localStorage.setItem('scion-filter-mine-groves', String(this.showMineOnly));
     void this.loadGroves();
   }
 
