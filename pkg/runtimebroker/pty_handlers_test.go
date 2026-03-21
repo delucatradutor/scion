@@ -18,6 +18,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"k8s.io/client-go/tools/remotecommand"
 )
 
 func TestWaitForTmuxSession_ContextCancelled(t *testing.T) {
@@ -64,5 +66,81 @@ func TestWaitForTmuxSession_SucceedsImmediately(t *testing.T) {
 	// First poll is at 500ms, so it should complete around that time
 	if elapsed > 2*time.Second {
 		t.Errorf("expected quick completion, took %v", elapsed)
+	}
+}
+
+func TestK8sSizeQueue_ReturnsInitialSize(t *testing.T) {
+	q := &k8sSizeQueue{
+		resizeCh: make(chan [2]int, 1),
+		closeCh:  make(chan struct{}),
+		ctx:      context.Background(),
+		initial:  &remotecommand.TerminalSize{Width: 120, Height: 40},
+	}
+
+	size := q.Next()
+	if size == nil {
+		t.Fatal("expected initial size, got nil")
+	}
+	if size.Width != 120 || size.Height != 40 {
+		t.Errorf("expected 120x40, got %dx%d", size.Width, size.Height)
+	}
+
+	// initial should be consumed
+	if q.initial != nil {
+		t.Error("expected initial to be nil after first call")
+	}
+}
+
+func TestK8sSizeQueue_ReturnsResizeEvents(t *testing.T) {
+	resizeCh := make(chan [2]int, 1)
+	q := &k8sSizeQueue{
+		resizeCh: resizeCh,
+		closeCh:  make(chan struct{}),
+		ctx:      context.Background(),
+		initial:  nil, // no initial size
+	}
+
+	resizeCh <- [2]int{200, 50}
+
+	size := q.Next()
+	if size == nil {
+		t.Fatal("expected resize event, got nil")
+	}
+	if size.Width != 200 || size.Height != 50 {
+		t.Errorf("expected 200x50, got %dx%d", size.Width, size.Height)
+	}
+}
+
+func TestK8sSizeQueue_ReturnsNilOnContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	q := &k8sSizeQueue{
+		resizeCh: make(chan [2]int),
+		closeCh:  make(chan struct{}),
+		ctx:      ctx,
+		initial:  nil,
+	}
+
+	size := q.Next()
+	if size != nil {
+		t.Errorf("expected nil on cancelled context, got %+v", size)
+	}
+}
+
+func TestK8sSizeQueue_ReturnsNilOnClose(t *testing.T) {
+	closeCh := make(chan struct{})
+	close(closeCh)
+
+	q := &k8sSizeQueue{
+		resizeCh: make(chan [2]int),
+		closeCh:  closeCh,
+		ctx:      context.Background(),
+		initial:  nil,
+	}
+
+	size := q.Next()
+	if size != nil {
+		t.Errorf("expected nil on close, got %+v", size)
 	}
 }
