@@ -286,18 +286,25 @@ func extractFiles(entries []GCPLogEntry) []FileNode {
 			continue
 		}
 		jp := e.JSONPayload
-		toolName := getStr(jp, "tool_name")
-		if !isFileEditTool(toolName) {
-			continue
-		}
+		// Any tool event with a file_path contributes to the file tree
 		fp := extractFilePath(jp)
 		if fp != "" {
 			filePaths[fp] = true
 		}
 	}
 
-	// Build file tree nodes from discovered paths (may be empty — that's fine)
+	// Build file tree nodes from discovered paths
 	nodes := make(map[string]*FileNode)
+
+	// Always add workspace root as the tree anchor
+	if len(filePaths) > 0 {
+		nodes["."] = &FileNode{
+			ID:    ".",
+			Name:  "/workspace",
+			IsDir: true,
+		}
+	}
+
 	for fp := range filePaths {
 		addFileToTree(nodes, fp)
 	}
@@ -463,10 +470,10 @@ func extractEvents(entries []GCPLogEntry, agents []AgentInfo) []PlaybackEvent {
 						ToolName: toolName,
 					},
 				})
-				// Generate file edit event for file-modifying tools
-				if isFileEditTool(toolName) {
-					fp := extractFilePath(jp)
-					if fp != "" {
+				// Generate file events for tools that interact with files
+				fp := extractFilePath(jp)
+				if fp != "" {
+					if isFileEditTool(toolName) {
 						action := "edit"
 						if toolName == "write_file" || toolName == "create_file" || toolName == "Write" {
 							action = "create"
@@ -478,6 +485,16 @@ func extractEvents(entries []GCPLogEntry, agents []AgentInfo) []PlaybackEvent {
 								AgentID:  aid,
 								FilePath: fp,
 								Action:   action,
+							},
+						})
+					} else if isFileReadTool(toolName) {
+						events = append(events, PlaybackEvent{
+							Type:      "file_read",
+							Timestamp: ts,
+							Data: FileEditEvent{
+								AgentID:  aid,
+								FilePath: fp,
+								Action:   "read",
 							},
 						})
 					}
@@ -617,6 +634,14 @@ func extractEvents(entries []GCPLogEntry, agents []AgentInfo) []PlaybackEvent {
 func isFileEditTool(name string) bool {
 	switch name {
 	case "write_file", "create_file", "Write", "edit_file", "Edit", "patch_file":
+		return true
+	}
+	return false
+}
+
+func isFileReadTool(name string) bool {
+	switch name {
+	case "read_file", "Read", "Grep", "Glob":
 		return true
 	}
 	return false

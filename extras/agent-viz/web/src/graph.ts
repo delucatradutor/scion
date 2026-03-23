@@ -3,6 +3,7 @@ import type { FileNode, GraphNode, GraphLink } from './types';
 
 type ForceGraphInstance = InstanceType<typeof ForceGraph>;
 
+const ROOT_RADIUS = 10;
 const DIR_RADIUS = 6;
 const FILE_RADIUS = 3;
 const HIGHLIGHT_DURATION = 3000; // ms
@@ -50,8 +51,10 @@ export class FileGraph {
 
     // Create links from parent-child relationships
     for (const f of files) {
-      if (f.parent && f.parent !== '.' && this.nodes.has(f.parent)) {
-        links.push({ source: f.parent, target: f.id });
+      if (f.id === '.') continue; // root has no parent link
+      const parent = f.parent || '.';
+      if (this.nodes.has(parent)) {
+        links.push({ source: parent, target: f.id });
       }
     }
 
@@ -65,6 +68,9 @@ export class FileGraph {
 
   addFile(filePath: string): void {
     if (this.nodes.has(filePath)) return;
+
+    // Ensure root node exists
+    this.ensureRoot();
 
     const name = filePath.includes('/') ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
     const parent = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '.';
@@ -97,11 +103,26 @@ export class FileGraph {
     const newNodes = [...existingNodes, node];
     const newLinks = [...existingLinks];
 
-    if (actualParent !== '.' && this.nodes.has(actualParent)) {
-      newLinks.push({ source: actualParent, target: id });
+    const linkParent = actualParent || '.';
+    if (this.nodes.has(linkParent)) {
+      newLinks.push({ source: linkParent, target: id });
     }
 
     this.graph.graphData({ nodes: newNodes, links: newLinks });
+  }
+
+  private ensureRoot(): void {
+    if (this.nodes.has('.')) return;
+    const root: GraphNode = {
+      id: '.',
+      name: '/workspace',
+      isDir: true,
+      parent: '',
+      highlighted: false,
+    };
+    this.nodes.set('.', root);
+    const { nodes, links } = this.graph.graphData();
+    this.graph.graphData({ nodes: [...nodes, root], links });
   }
 
   hasFile(filePath: string): boolean {
@@ -139,7 +160,8 @@ export class FileGraph {
   }
 
   private drawNode(node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number): void {
-    const r = node.isDir ? DIR_RADIUS : FILE_RADIUS;
+    const isRoot = node.id === '.';
+    const r = isRoot ? ROOT_RADIUS : node.isDir ? DIR_RADIUS : FILE_RADIUS;
     const x = node.x ?? 0;
     const y = node.y ?? 0;
 
@@ -172,7 +194,9 @@ export class FileGraph {
     // Node circle
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
-    if (node.isDir) {
+    if (isRoot) {
+      ctx.fillStyle = glowing ? '#fff176' : '#ffa726';
+    } else if (node.isDir) {
       ctx.fillStyle = glowing ? '#4fc3f7' : '#546e7a';
     } else {
       ctx.fillStyle = glowing ? '#81d4fa' : '#78909c';
@@ -184,12 +208,13 @@ export class FileGraph {
     ctx.lineWidth = 0.5;
     ctx.stroke();
 
-    // Label (only when zoomed in enough)
-    if (globalScale > 1.5) {
-      ctx.font = `${Math.max(3, 10 / globalScale)}px sans-serif`;
+    // Label (root always visible, others when zoomed in)
+    if (isRoot || globalScale > 1.5) {
+      const fontSize = isRoot ? Math.max(5, 12 / globalScale) : Math.max(3, 10 / globalScale);
+      ctx.font = `${isRoot ? 'bold ' : ''}${fontSize}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillStyle = isRoot ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.7)';
       ctx.fillText(node.name, x, y + r + 2);
     }
   }

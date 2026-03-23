@@ -146,6 +146,9 @@ func TestParseLogFile(t *testing.T) {
 	if !fileIDs["src"] {
 		t.Error("expected directory 'src' from file tree")
 	}
+	if !fileIDs["."] {
+		t.Error("expected root '.' node in file tree")
+	}
 
 	// Verify events
 	if len(result.Events) == 0 {
@@ -197,6 +200,26 @@ func TestIsFileEditTool(t *testing.T) {
 	}
 }
 
+func TestIsFileReadTool(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected bool
+	}{
+		{"read_file", true},
+		{"Read", true},
+		{"Grep", true},
+		{"Glob", true},
+		{"Write", false},
+		{"Bash", false},
+	}
+
+	for _, tt := range tests {
+		if got := isFileReadTool(tt.name); got != tt.expected {
+			t.Errorf("isFileReadTool(%q) = %v, want %v", tt.name, got, tt.expected)
+		}
+	}
+}
+
 func TestTimestampToTime(t *testing.T) {
 	ts := "2026-03-22T16:30:00.123456789Z"
 	tm, err := TimestampToTime(ts)
@@ -222,6 +245,64 @@ func TestExtractFilesEmpty(t *testing.T) {
 	files := extractFiles(entries)
 	if len(files) != 0 {
 		t.Errorf("expected empty files when no tool calls found, got %d", len(files))
+	}
+}
+
+func TestExtractFilesFromReads(t *testing.T) {
+	entries := []GCPLogEntry{
+		{
+			LogName: "projects/test/logs/scion-agents",
+			Labels:  map[string]string{"agent_id": "a1"},
+			JSONPayload: map[string]any{
+				"message":   "agent.tool.call",
+				"tool_name": "Read",
+				"file_path": "/workspace/config.yaml",
+			},
+		},
+	}
+	files := extractFiles(entries)
+
+	fileIDs := map[string]bool{}
+	for _, f := range files {
+		fileIDs[f.ID] = true
+	}
+	if !fileIDs["."] {
+		t.Error("expected root '.' node")
+	}
+	if !fileIDs["config.yaml"] {
+		t.Error("expected 'config.yaml' from Read tool call")
+	}
+}
+
+func TestFileReadEvents(t *testing.T) {
+	entries := []GCPLogEntry{
+		{
+			InsertID:  "1",
+			Timestamp: "2026-03-22T16:30:00.000Z",
+			LogName:   "projects/test/logs/scion-agents",
+			Labels:    map[string]string{"agent_id": "a1", "scion.harness": "claude"},
+			JSONPayload: map[string]any{
+				"message":   "agent.tool.call",
+				"tool_name": "Read",
+				"file_path": "/workspace/README.md",
+			},
+		},
+	}
+	agents := extractAgents(entries)
+	events := extractEvents(entries, agents)
+
+	var foundRead bool
+	for _, e := range events {
+		if e.Type == "file_read" {
+			if fe, ok := e.Data.(FileEditEvent); ok {
+				if fe.FilePath == "README.md" && fe.Action == "read" {
+					foundRead = true
+				}
+			}
+		}
+	}
+	if !foundRead {
+		t.Error("expected file_read event for Read tool call")
 	}
 }
 

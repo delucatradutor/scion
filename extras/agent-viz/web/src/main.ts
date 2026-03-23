@@ -61,6 +61,7 @@ function init(): void {
         case 'agent_state':
         case 'message':
         case 'file_edit':
+        case 'file_read':
         case 'agent_create':
         case 'agent_destroy':
           handleEvent(msg as PlaybackEvent);
@@ -126,7 +127,8 @@ function handleEvent(evt: PlaybackEvent): void {
     case 'message':
       messageRenderer.addMessage(evt.data as MessageEvent, agentRing);
       break;
-    case 'file_edit': {
+    case 'file_edit':
+    case 'file_read': {
       const fileEvt = evt.data as FileEditEvent;
       // Dynamically add file to graph if not already present
       if (fileEvt.filePath && !fileGraph.hasFile(fileEvt.filePath)) {

@@ -318,6 +318,8 @@ func extractAgentID(evt logparser.PlaybackEvent) string {
 		return d.AgentID
 	case logparser.AgentLifecycleEvent:
 		return d.AgentID
+	case logparser.MessageEvent:
+		return ""
 	}
 	return ""
 }

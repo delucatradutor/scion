@@ -9,7 +9,7 @@ interface ActiveParticle {
   from: { x: number; y: number };
   to: { x: number; y: number };
   color: string;
-  action: 'create' | 'edit';
+  action: 'create' | 'edit' | 'read';
   startTime: number;
   filePath: string;
 }
@@ -45,9 +45,11 @@ export class FileEditRenderer {
 
     const color = agentRing.getAgentColor(event.agentId);
 
+    // Reads travel from file to agent; edits from agent to file
+    const isRead = event.action === 'read';
     this.particles.push({
-      from: screenFrom,
-      to: { x: screenTo.x, y: screenTo.y },
+      from: isRead ? { x: screenTo.x, y: screenTo.y } : screenFrom,
+      to: isRead ? screenFrom : { x: screenTo.x, y: screenTo.y },
       color,
       action: event.action,
       startTime: Date.now(),
@@ -69,6 +71,8 @@ export class FileEditRenderer {
     for (const particle of this.particles) {
       const elapsed = now - particle.startTime;
 
+      const isRead = particle.action === 'read';
+
       if (elapsed < PARTICLE_DURATION) {
         // Particle traveling
         const t = elapsed / PARTICLE_DURATION;
@@ -77,26 +81,45 @@ export class FileEditRenderer {
         const x = particle.from.x + (particle.to.x - particle.from.x) * eased;
         const y = particle.from.y + (particle.to.y - particle.from.y) * eased;
 
-        // Trail
-        const trailLength = 5;
-        for (let i = 0; i < trailLength; i++) {
-          const tt = Math.max(0, eased - i * 0.03);
-          const tx = particle.from.x + (particle.to.x - particle.from.x) * tt;
-          const ty = particle.from.y + (particle.to.y - particle.from.y) * tt;
+        if (isRead) {
+          // Read: smaller, dimmer, dotted trail
+          const trailLength = 3;
+          for (let i = 0; i < trailLength; i++) {
+            const tt = Math.max(0, eased - i * 0.05);
+            const tx = particle.from.x + (particle.to.x - particle.from.x) * tt;
+            const ty = particle.from.y + (particle.to.y - particle.from.y) * tt;
+            ctx.beginPath();
+            ctx.arc(tx, ty, 1.5, 0, Math.PI * 2);
+            ctx.fillStyle = this.getColor(particle, 0.5 - i * 0.12);
+            ctx.fill();
+          }
           ctx.beginPath();
-          ctx.arc(tx, ty, 3 - i * 0.5, 0, Math.PI * 2);
-          ctx.fillStyle = this.getColor(particle, 0.8 - i * 0.15);
+          ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+          ctx.fillStyle = this.getColor(particle, 0.7);
+          ctx.shadowBlur = 6;
+          ctx.shadowColor = particle.color;
           ctx.fill();
+          ctx.shadowBlur = 0;
+        } else {
+          // Edit/Create: full trail
+          const trailLength = 5;
+          for (let i = 0; i < trailLength; i++) {
+            const tt = Math.max(0, eased - i * 0.03);
+            const tx = particle.from.x + (particle.to.x - particle.from.x) * tt;
+            const ty = particle.from.y + (particle.to.y - particle.from.y) * tt;
+            ctx.beginPath();
+            ctx.arc(tx, ty, 3 - i * 0.5, 0, Math.PI * 2);
+            ctx.fillStyle = this.getColor(particle, 0.8 - i * 0.15);
+            ctx.fill();
+          }
+          ctx.beginPath();
+          ctx.arc(x, y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = this.getColor(particle, 1);
+          ctx.shadowBlur = 12;
+          ctx.shadowColor = particle.color;
+          ctx.fill();
+          ctx.shadowBlur = 0;
         }
-
-        // Main particle
-        ctx.beginPath();
-        ctx.arc(x, y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = this.getColor(particle, 1);
-        ctx.shadowBlur = 12;
-        ctx.shadowColor = particle.color;
-        ctx.fill();
-        ctx.shadowBlur = 0;
       } else if (particle.action === 'create') {
         // Materialize effect for new files
         const mt = (elapsed - PARTICLE_DURATION) / MATERIALIZE_DURATION;
