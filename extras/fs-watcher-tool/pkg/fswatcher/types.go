@@ -32,5 +32,5 @@ type Config struct {
 	FilterFile string
 	Debounce   time.Duration
 	CacheTTL   time.Duration
-	Verbose    bool
+	Debug      bool
 }

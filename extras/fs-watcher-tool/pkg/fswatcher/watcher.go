@@ -113,8 +113,11 @@ func (w *Watcher) Run(ctx context.Context) error {
 		}
 	}
 
-	if w.cfg.Verbose {
+	if w.cfg.Debug {
+		log.Printf("[watcher] fanotify fd=%d, flags=FAN_CLASS_NOTIF|FAN_REPORT_DFID_NAME|FAN_CLOEXEC", fd)
+		log.Printf("[watcher] mark flags=FAN_MARK_ADD|FAN_MARK_FILESYSTEM, mask=CREATE|DELETE|CLOSE_WRITE|MOVED_FROM|MOVED_TO")
 		log.Printf("[watcher] watching %d directories, debounce=%s", len(w.roots), w.cfg.Debounce)
+		log.Printf("[watcher] entering event loop (poll timeout=500ms)")
 	}
 
 	return w.eventLoop(ctx)
@@ -126,6 +129,9 @@ func (w *Watcher) markDirectory(dir string) error {
 	markFlags := uint(unix.FAN_MARK_ADD | unix.FAN_MARK_FILESYSTEM)
 	mask := uint64(unix.FAN_CREATE | unix.FAN_DELETE | unix.FAN_CLOSE_WRITE |
 		unix.FAN_MOVED_FROM | unix.FAN_MOVED_TO)
+	if w.cfg.Debug {
+		log.Printf("[watcher] marking filesystem for dir: %s", dir)
+	}
 	return unix.FanotifyMark(w.fanotifyFd, markFlags, mask, -1, dir)
 }
 
@@ -290,6 +296,9 @@ func (w *Watcher) handleRawEvent(pid int, mask uint64, absPath string) {
 	}
 
 	if w.filter.ShouldIgnore(relPath) {
+		if w.cfg.Debug {
+			log.Printf("[watcher] filtered out: %s (pid=%d)", relPath, pid)
+		}
 		return
 	}
 
@@ -344,6 +353,9 @@ func (w *Watcher) handleRenameTo(agentID, absPath, relPath string) {
 
 	if hasPending && isTempFile(pending.fromPath) {
 		// Editor save pattern: write-to-temp + rename → coalesce to modify.
+		if w.cfg.Debug {
+			log.Printf("[watcher] rename coalesced: %s → %s (agent=%q) → modify", pending.fromPath, relPath, agentID)
+		}
 		w.submitDebounced(agentID, absPath, relPath, ActionModify)
 	} else {
 		if hasPending {

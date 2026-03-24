@@ -15,15 +15,15 @@ import (
 type GroveDiscovery struct {
 	dockerClient *client.Client
 	groveID      string
-	verbose      bool
+	debug        bool
 }
 
 // NewGroveDiscovery creates a GroveDiscovery for the given grove ID.
-func NewGroveDiscovery(dockerClient *client.Client, groveID string, verbose bool) *GroveDiscovery {
+func NewGroveDiscovery(dockerClient *client.Client, groveID string, debug bool) *GroveDiscovery {
 	return &GroveDiscovery{
 		dockerClient: dockerClient,
 		groveID:      groveID,
-		verbose:      verbose,
+		debug:        debug,
 	}
 }
 
@@ -45,7 +45,7 @@ func (g *GroveDiscovery) Discover(ctx context.Context) ([]string, error) {
 	for _, c := range containers {
 		info, err := g.dockerClient.ContainerInspect(ctx, c.ID)
 		if err != nil {
-			if g.verbose {
+			if g.debug {
 				log.Printf("[grove] failed to inspect container %s: %v", c.ID[:12], err)
 			}
 			continue
@@ -61,7 +61,7 @@ func (g *GroveDiscovery) Discover(ctx context.Context) ([]string, error) {
 				if !seen[hostPath] {
 					seen[hostPath] = true
 					dirs = append(dirs, hostPath)
-					if g.verbose {
+					if g.debug {
 						agentName := info.Config.Labels["scion.name"]
 						log.Printf("[grove] discovered watch dir: %s (agent: %s)", hostPath, agentName)
 					}
@@ -70,7 +70,7 @@ func (g *GroveDiscovery) Discover(ctx context.Context) ([]string, error) {
 		}
 	}
 
-	if g.verbose {
+	if g.debug {
 		log.Printf("[grove] discovered %d directories for grove %q", len(dirs), g.groveID)
 	}
 	return dirs, nil

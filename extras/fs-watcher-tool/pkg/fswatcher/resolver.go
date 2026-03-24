@@ -25,7 +25,7 @@ type Resolver struct {
 	dockerClient *client.Client
 	labelKey     string
 	cacheTTL     time.Duration
-	verbose      bool
+	debug        bool
 }
 
 type pidEntry struct {
@@ -34,19 +34,23 @@ type pidEntry struct {
 }
 
 // NewResolver creates a Resolver that uses the Docker API for container label lookups.
-func NewResolver(dockerClient *client.Client, labelKey string, cacheTTL time.Duration, verbose bool) *Resolver {
+func NewResolver(dockerClient *client.Client, labelKey string, cacheTTL time.Duration, debug bool) *Resolver {
 	return &Resolver{
 		containerCache: make(map[string]string),
 		pidCache:       make(map[int]pidEntry),
 		dockerClient:   dockerClient,
 		labelKey:       labelKey,
 		cacheTTL:       cacheTTL,
-		verbose:        verbose,
+		debug:          debug,
 	}
 }
 
 // Warmup pre-populates the container cache with all running containers that have the label key.
 func (r *Resolver) Warmup(ctx context.Context) error {
+	if r.debug {
+		log.Printf("[resolver] warming up container cache (label filter: %s)", r.labelKey)
+	}
+
 	containers, err := r.dockerClient.ContainerList(ctx, container.ListOptions{
 		Filters: filters.NewArgs(filters.Arg("label", r.labelKey)),
 	})
@@ -59,20 +63,25 @@ func (r *Resolver) Warmup(ctx context.Context) error {
 	for _, c := range containers {
 		if agentID, ok := c.Labels[r.labelKey]; ok {
 			r.containerCache[c.ID] = agentID
-			// Also cache short ID prefix.
 			if len(c.ID) >= 12 {
 				r.containerCache[c.ID[:12]] = agentID
 			}
+			if r.debug {
+				log.Printf("[resolver]   cached container %s → agent %q", c.ID[:12], agentID)
+			}
 		}
 	}
-	if r.verbose {
-		log.Printf("[resolver] warmed up with %d containers", len(containers))
-	}
+
+	log.Printf("[resolver] warmed up with %d scion containers", len(containers))
 	return nil
 }
 
 // WatchContainerEvents subscribes to Docker start/die events and updates the cache.
 func (r *Resolver) WatchContainerEvents(ctx context.Context, onStart func(containerID string), onDie func(containerID string)) {
+	if r.debug {
+		log.Printf("[resolver] subscribing to docker events (type=container, actions=start,die)")
+	}
+
 	eventsCh, errCh := r.dockerClient.Events(ctx, events.ListOptions{
 		Filters: filters.NewArgs(
 			filters.Arg("type", "container"),
@@ -89,13 +98,13 @@ func (r *Resolver) WatchContainerEvents(ctx context.Context, onStart func(contai
 			case ev := <-eventsCh:
 				switch ev.Action {
 				case events.ActionStart:
-					r.handleContainerStart(ctx, ev.Actor.ID, onStart)
+					r.handleContainerStart(ctx, ev.Actor.ID, ev.Actor.Attributes, onStart)
 				case events.ActionDie:
-					r.handleContainerDie(ev.Actor.ID, onDie)
+					r.handleContainerDie(ev.Actor.ID, ev.Actor.Attributes, onDie)
 				}
 			case err := <-errCh:
 				if err != nil && ctx.Err() == nil {
-					log.Printf("[resolver] docker events error: %v", err)
+					log.Printf("[resolver] docker events stream error: %v", err)
 				}
 				return
 			}
@@ -103,16 +112,31 @@ func (r *Resolver) WatchContainerEvents(ctx context.Context, onStart func(contai
 	}()
 }
 
-func (r *Resolver) handleContainerStart(ctx context.Context, containerID string, onStart func(string)) {
+func (r *Resolver) handleContainerStart(ctx context.Context, containerID string, attrs map[string]string, onStart func(string)) {
+	shortID := containerID
+	if len(shortID) > 12 {
+		shortID = shortID[:12]
+	}
+
+	if r.debug {
+		containerName := attrs["name"]
+		image := attrs["image"]
+		log.Printf("[resolver] docker event: container started %s (name=%s, image=%s)", shortID, containerName, image)
+	}
+
 	info, err := r.dockerClient.ContainerInspect(ctx, containerID)
 	if err != nil {
-		if r.verbose {
-			log.Printf("[resolver] failed to inspect container %s: %v", containerID[:12], err)
+		if r.debug {
+			log.Printf("[resolver]   inspect failed for %s: %v", shortID, err)
 		}
 		return
 	}
+
 	agentID, ok := info.Config.Labels[r.labelKey]
 	if !ok {
+		if r.debug {
+			log.Printf("[resolver]   container %s has no %s label, skipping", shortID, r.labelKey)
+		}
 		return
 	}
 
@@ -123,25 +147,33 @@ func (r *Resolver) handleContainerStart(ctx context.Context, containerID string,
 	}
 	r.mu.Unlock()
 
-	if r.verbose {
-		log.Printf("[resolver] container started: %s → %s", containerID[:12], agentID)
-	}
+	log.Printf("[resolver] container started: %s → agent %q", shortID, agentID)
 	if onStart != nil {
 		onStart(containerID)
 	}
 }
 
-func (r *Resolver) handleContainerDie(containerID string, onDie func(string)) {
+func (r *Resolver) handleContainerDie(containerID string, attrs map[string]string, onDie func(string)) {
+	shortID := containerID
+	if len(shortID) > 12 {
+		shortID = shortID[:12]
+	}
+
 	r.mu.Lock()
+	agentID := r.containerCache[containerID]
 	delete(r.containerCache, containerID)
 	if len(containerID) >= 12 {
 		delete(r.containerCache, containerID[:12])
 	}
 	r.mu.Unlock()
 
-	if r.verbose {
-		log.Printf("[resolver] container died: %s", containerID[:12])
+	if agentID != "" {
+		log.Printf("[resolver] container died: %s (was agent %q)", shortID, agentID)
+	} else if r.debug {
+		containerName := attrs["name"]
+		log.Printf("[resolver] docker event: container died %s (name=%s), not in cache", shortID, containerName)
 	}
+
 	if onDie != nil {
 		onDie(containerID)
 	}
@@ -155,6 +187,9 @@ func (r *Resolver) Resolve(pid int) string {
 		cid := entry.containerID
 		agentID := r.containerCache[cid]
 		r.mu.RUnlock()
+		if r.debug {
+			log.Printf("[resolver] pid %d → container %s → agent %q (cached)", pid, cid[:12], agentID)
+		}
 		return agentID
 	}
 	r.mu.RUnlock()
@@ -162,6 +197,9 @@ func (r *Resolver) Resolve(pid int) string {
 	// Resolve PID → container ID via cgroup.
 	containerID := resolveContainerFromCgroup(pid)
 	if containerID == "" {
+		if r.debug {
+			log.Printf("[resolver] pid %d → no container (not in a docker cgroup)", pid)
+		}
 		return ""
 	}
 
@@ -182,6 +220,18 @@ func (r *Resolver) Resolve(pid int) string {
 		agentID = r.inspectAndCache(containerID)
 	}
 
+	if r.debug {
+		shortCID := containerID
+		if len(shortCID) > 12 {
+			shortCID = shortCID[:12]
+		}
+		if agentID != "" {
+			log.Printf("[resolver] pid %d → container %s → agent %q (resolved)", pid, shortCID, agentID)
+		} else {
+			log.Printf("[resolver] pid %d → container %s → no agent label", pid, shortCID)
+		}
+	}
+
 	return agentID
 }
 
@@ -191,6 +241,9 @@ func (r *Resolver) inspectAndCache(containerID string) string {
 
 	info, err := r.dockerClient.ContainerInspect(ctx, containerID)
 	if err != nil {
+		if r.debug {
+			log.Printf("[resolver] inspect %s failed: %v", containerID[:12], err)
+		}
 		return ""
 	}
 	agentID, ok := info.Config.Labels[r.labelKey]

@@ -34,7 +34,7 @@ func main() {
 		filterFile string
 		debounce   time.Duration
 		cacheTTL   time.Duration
-		verbose    bool
+		debug      bool
 	)
 
 	flag.StringVar(&grove, "grove", "", "Grove ID — auto-discover agent directories via Docker labels")
@@ -44,8 +44,8 @@ func main() {
 	flag.Var(&ignore, "ignore", "Glob patterns to exclude (repeatable)")
 	flag.StringVar(&filterFile, "filter-file", "", "Path to .gitignore-style filter file")
 	flag.DurationVar(&debounce, "debounce", 300*time.Millisecond, "Duration to collapse rapid edits to the same file")
-	flag.DurationVar(&cacheTTL, "cache-ttl", 5*time.Minute, "Duration to cache PID→container mappings")
-	flag.BoolVar(&verbose, "verbose", false, "Enable debug logging to stderr")
+	flag.DurationVar(&cacheTTL, "cache-ttl", 5*time.Minute, "Duration to cache PID-to-container mappings")
+	flag.BoolVar(&debug, "debug", false, "Enable verbose debug logging to stderr")
 	flag.Parse()
 
 	if grove == "" && len(watchDirs) == 0 {
@@ -68,7 +68,7 @@ func main() {
 		FilterFile: filterFile,
 		Debounce:   debounce,
 		CacheTTL:   cacheTTL,
-		Verbose:    verbose,
+		Debug:      debug,
 	}
 
 	if err := run(cfg); err != nil {
@@ -112,8 +112,21 @@ func run(cfg fswatcher.Config) error {
 	}
 	defer dockerClient.Close()
 
+	if cfg.Debug {
+		log.Printf("[docker] connected to docker daemon at %s", dockerClient.DaemonHost())
+		info, infoErr := dockerClient.Info(ctx)
+		if infoErr != nil {
+			log.Printf("[docker] warning: could not query docker info: %v", infoErr)
+		} else {
+			log.Printf("[docker] server version: %s, containers: %d running / %d total",
+				info.ServerVersion, info.ContainersRunning, info.Containers)
+			log.Printf("[docker] cgroup driver: %s, cgroup version: %s",
+				info.CgroupDriver, info.CgroupVersion)
+		}
+	}
+
 	// Set up resolver.
-	resolver := fswatcher.NewResolver(dockerClient, cfg.LabelKey, cfg.CacheTTL, cfg.Verbose)
+	resolver := fswatcher.NewResolver(dockerClient, cfg.LabelKey, cfg.CacheTTL, cfg.Debug)
 	if err := resolver.Warmup(ctx); err != nil {
 		log.Printf("warning: resolver warmup failed: %v", err)
 	}
@@ -124,7 +137,7 @@ func run(cfg fswatcher.Config) error {
 
 	var groveDiscovery *fswatcher.GroveDiscovery
 	if cfg.Grove != "" {
-		groveDiscovery = fswatcher.NewGroveDiscovery(dockerClient, cfg.Grove, cfg.Verbose)
+		groveDiscovery = fswatcher.NewGroveDiscovery(dockerClient, cfg.Grove, cfg.Debug)
 		groveDirs, err := groveDiscovery.Discover(ctx)
 		if err != nil {
 			return fmt.Errorf("grove discovery: %w", err)
@@ -134,6 +147,19 @@ func run(cfg fswatcher.Config) error {
 
 	if len(roots) == 0 {
 		return fmt.Errorf("no directories to watch (grove discovery found 0 directories and no --watch paths specified)")
+	}
+
+	if cfg.Debug {
+		log.Printf("[config] grove=%q, label-key=%q, debounce=%s, cache-ttl=%s",
+			cfg.Grove, cfg.LabelKey, cfg.Debounce, cfg.CacheTTL)
+		log.Printf("[config] ignore patterns: %v", cfg.Ignore)
+		if cfg.FilterFile != "" {
+			log.Printf("[config] filter file: %s", cfg.FilterFile)
+		}
+		log.Printf("[config] log output: %s", cfg.LogFile)
+		for i, dir := range roots {
+			log.Printf("[config] watch root [%d]: %s", i, dir)
+		}
 	}
 
 	// Build and start watcher.
@@ -149,18 +175,24 @@ func run(cfg fswatcher.Config) error {
 			}
 			if err := watcher.AddRoot(dir); err != nil {
 				log.Printf("warning: failed to add watch for new container dir %s: %v", dir, err)
-			} else if cfg.Verbose {
-				log.Printf("[main] added watch for new container dir: %s", dir)
+			} else if cfg.Debug {
+				log.Printf("[grove] added watch for new container dir: %s", dir)
 			}
 		}
 	}
 	resolver.WatchContainerEvents(ctx, onStart, nil)
+
+	if cfg.Debug {
+		log.Printf("[watcher] subscribed to docker container lifecycle events (start/die)")
+	}
 
 	// Run event loop in a goroutine.
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- watcher.Run(ctx)
 	}()
+
+	log.Printf("scion-fs-watcher started, watching %d directories", len(roots))
 
 	// Wait for signal or error.
 	for {
