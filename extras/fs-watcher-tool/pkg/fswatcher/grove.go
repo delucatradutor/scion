@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -55,16 +56,19 @@ func (g *GroveDiscovery) Discover(ctx context.Context) ([]string, error) {
 			if mount.Type != "bind" {
 				continue
 			}
-			// Look for workspace mounts — the destination is typically /workspace.
-			if mount.Destination == "/workspace" || mount.Destination == "/home/user/workspace" {
-				hostPath := mount.Source
-				if !seen[hostPath] {
-					seen[hostPath] = true
-					dirs = append(dirs, hostPath)
-					if g.debug {
-						agentName := info.Config.Labels["scion.name"]
-						log.Printf("[grove] discovered watch dir: %s (agent: %s)", hostPath, agentName)
-					}
+			// Look for workspace mounts — the destination is typically /workspace,
+			// but may also be /repo-root (when the full project is bind-mounted)
+			// or a sub-path like /repo-root/.scion/agents/<name>/workspace.
+			if !isWorkspaceMount(mount.Destination) {
+				continue
+			}
+			hostPath := mount.Source
+			if !seen[hostPath] {
+				seen[hostPath] = true
+				dirs = append(dirs, hostPath)
+				if g.debug {
+					agentName := info.Config.Labels["scion.name"]
+					log.Printf("[grove] discovered watch dir: %s (agent: %s, dest: %s)", hostPath, agentName, mount.Destination)
 				}
 			}
 		}
@@ -89,9 +93,24 @@ func (g *GroveDiscovery) DiscoverForContainer(ctx context.Context, containerID s
 	}
 
 	for _, mount := range info.Mounts {
-		if mount.Type == "bind" && (mount.Destination == "/workspace" || mount.Destination == "/home/user/workspace") {
+		if mount.Type == "bind" && isWorkspaceMount(mount.Destination) {
 			return mount.Source, nil
 		}
 	}
 	return "", nil
+}
+
+// isWorkspaceMount returns true if the container-side mount destination looks
+// like a workspace path. This covers the standard /workspace destination as
+// well as /repo-root (used when the full project directory is bind-mounted
+// into the container — a mis-detection artifact of git-repo-based groves that
+// is not expected to persist long-term).
+func isWorkspaceMount(dest string) bool {
+	if dest == "/workspace" || dest == "/repo-root" {
+		return true
+	}
+	if strings.HasPrefix(dest, "/repo-root/") && strings.HasSuffix(dest, "/workspace") {
+		return true
+	}
+	return false
 }
