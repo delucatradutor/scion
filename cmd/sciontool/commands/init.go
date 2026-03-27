@@ -818,8 +818,15 @@ func setupHostUser() (int, int, bool) {
 
 		// Modify user UID and primary group
 		if err := exec.Command("usermod", "-o", "-u", hostUID, "-g", hostGID, "scion").Run(); err != nil {
-			log.Error("Failed to modify scion user to UID %s, GID %s: %v", hostUID, hostGID, err)
-			return 0, 0, false
+			// usermod can fail with exit code 12 on runtimes where the home
+			// directory is a mount point (e.g. Apple Virtualization / VirtioFS)
+			// because it tries a recursive chown that the filesystem rejects.
+			// Fall back to direct /etc/passwd editing which skips recursive chown.
+			log.Info("usermod failed (exit: %v), falling back to direct passwd edit", err)
+			if err := directSetUID("scion", hostUID, hostGID); err != nil {
+				log.Error("Direct passwd/group fallback also failed: %v", err)
+				return 0, 0, false
+			}
 		}
 	}
 
