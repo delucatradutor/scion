@@ -481,9 +481,13 @@ export class ScionPageTerminal extends LitElement {
       // Shift+Enter: send ESC CR (\x1b\r) so that inner applications
       // (e.g. claude-code) can distinguish it from plain Enter.
       // This matches what native terminals send for Alt+Enter / Alt+Shift+Enter.
-      if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
-        console.debug('[Terminal] Shift+Enter detected, sending ESC CR');
-        this.sendData('\x1b\r');
+      if (event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        if (event.type === 'keydown') {
+          console.debug('[Terminal] Shift+Enter detected, sending ESC CR');
+          this.sendData('\x1b\r');
+        }
+        // Suppress both keydown and keypress to prevent xterm.js
+        // from also sending a plain \r on the keypress event.
         return false;
       }
 
